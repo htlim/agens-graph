@@ -3035,6 +3035,64 @@ create_modifytable_path(PlannerInfo *root, RelOptInfo *rel,
 }
 
 /*
+ * create_modifygraph_path
+ *	  Creates a pathnode that represents performing CREATE/UPDATE/DELETE
+ *	  for cypher graph query
+ *
+ * 'root' is a PlannerInfo struct
+ * 'rel' is the parent relation associated with the result
+ * 'canSetTag' is true if we set the command tag/es_processed
+ * 'operation' is the operation type
+ * 'subpath' is a Path producing source data
+ * 'last' is true if this is last clause
+ * 'detach' is true if DELETE operation is DETACHed
+ * 'pattern' is a list of graph patterns for CREATE
+ * 'exprs' is a list of expression for DELETE
+ */
+ModifyGraphPath *
+create_modifygraph_path(PlannerInfo *root, RelOptInfo *rel, bool canSetTag,
+						Path *subpath, GraphWriteOp operation,
+						bool last, bool detach, List *pattern, List *exprs)
+{
+	ModifyGraphPath *pathnode = makeNode(ModifyGraphPath);
+	double		total_size;
+
+	pathnode->path.pathtype = T_ModifyGraph;
+	pathnode->path.parent = rel;
+	/* pathtarget is not interesting, just make it minimally valid */
+	pathnode->path.pathtarget = rel->reltarget;
+	/* For now, assume we are above any joins, so no parameterization */
+	pathnode->path.param_info = NULL;
+	pathnode->path.parallel_aware = false;
+	pathnode->path.parallel_safe = false;
+	pathnode->path.parallel_workers = 0;
+	pathnode->path.pathkeys = NIL;
+
+	/*
+	 * Compute cost & rowcount as sum of subpath costs & rowcounts.
+	 */
+	pathnode->path.startup_cost = subpath->startup_cost;
+	pathnode->path.total_cost = subpath->total_cost;
+	pathnode->path.rows = subpath->rows;
+	total_size = subpath->pathtarget->width * subpath->rows;
+	pathnode->path.pathtarget->width = rint(total_size);
+
+	/*
+	 * Set graph operation information
+	 */
+	pathnode->operation = operation;
+	pathnode->canSetTag = canSetTag;
+	pathnode->subpath = subpath;
+	pathnode->subroot = root;
+	pathnode->last = last;
+	pathnode->detach = detach;
+	pathnode->pattern = pattern;
+	pathnode->exprs = exprs;
+
+	return pathnode;
+}
+
+/*
  * create_limit_path
  *	  Creates a pathnode that represents performing LIMIT/OFFSET
  *

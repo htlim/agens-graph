@@ -271,6 +271,7 @@ static ModifyTable *make_modifytable(PlannerInfo *root,
 				 List *withCheckOptionLists, List *returningLists,
 				 List *rowMarks, OnConflictExpr *onconflict, int epqParam);
 
+static ModifyGraph *create_modifygraph_plan(PlannerInfo *root, ModifyGraphPath *best_path);
 
 /*
  * create_plan
@@ -309,7 +310,7 @@ create_plan(PlannerInfo *root, Path *best_path)
 	 * top-level tlist seen at execution time.  However, ModifyTable plan
 	 * nodes don't have a tlist matching the querytree targetlist.
 	 */
-	if (!IsA(plan, ModifyTable))
+	if (!IsA(plan, ModifyTable) && !IsA(plan, ModifyGraph))
 		apply_tlist_labeling(plan->targetlist, root->processed_tlist);
 
 	/*
@@ -462,6 +463,10 @@ create_plan_recurse(PlannerInfo *root, Path *best_path, int flags)
 			plan = (Plan *) create_limit_plan(root,
 											  (LimitPath *) best_path,
 											  flags);
+			break;
+		case T_ModifyGraph:
+			plan = (Plan *) create_modifygraph_plan(root,
+												(ModifyGraphPath *) best_path);
 			break;
 		default:
 			elog(ERROR, "unrecognized node type: %d",
@@ -2242,6 +2247,52 @@ create_limit_plan(PlannerInfo *root, LimitPath *best_path, int flags)
 					  best_path->limitCount);
 
 	copy_generic_path_info(&plan->plan, (Path *) best_path);
+
+	return plan;
+}
+
+
+// TODO : Change
+/*
+ * create_modifytable_plan
+ *	  Create a ModifyTable plan for 'best_path'.
+ *
+ *	  Returns a Plan node.
+ */
+static ModifyGraph *
+create_modifygraph_plan(PlannerInfo *root, ModifyGraphPath *best_path)
+{
+	ModifyGraph *plan;
+	Plan		*subplan = NULL;
+
+	/*
+	 * In an inherited UPDATE/DELETE, reference the per-child modified
+	 * subroot while creating Plans from Paths for the child rel.  This is
+	 * a kluge, but otherwise it's too hard to ensure that Plan creation
+	 * functions (particularly in FDWs) don't depend on the contents of
+	 * "root" matching what they saw at Path creation time.  The main
+	 * downside is that creation functions for Plans that might appear
+	 * below a ModifyTable cannot expect to modify the contents of "root"
+	 * and have it "stick" for subsequent processing such as setrefs.c.
+	 * That's not great, but it seems better than the alternative.
+	 */
+	subplan = create_plan_recurse(best_path->subroot, best_path->subpath,
+								  CP_EXACT_TLIST);
+
+	/* Transfer resname/resjunk labeling, too, to keep executor happy */
+	apply_tlist_labeling(subplan->targetlist,
+						 best_path->subroot->processed_tlist);
+
+	plan = make_modifygraph(root,
+							best_path->canSetTag,
+							best_path->operation,
+							best_path->last,
+							best_path->detach,
+							subplan,
+							best_path->pattern,
+							best_path->exprs);
+
+	copy_generic_path_info(&plan->plan, &best_path->path);
 
 	return plan;
 }
@@ -6229,8 +6280,6 @@ make_modifygraph(PlannerInfo *root, bool canSetTag, GraphWriteOp operation,
 				 List *exprs)
 {
 	ModifyGraph *node = makeNode(ModifyGraph);
-
-	copy_plan_costsize(&node->plan, subplan);
 
 	node->canSetTag = canSetTag;
 	node->operation = operation;

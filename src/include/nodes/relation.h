@@ -1468,6 +1468,23 @@ typedef struct LimitPath
 
 
 /*
+ * ModifyGraphPath represents performing graph modifications
+ *
+ */
+typedef struct ModifyGraphPath
+{
+	Path		path;
+	bool		canSetTag;		/* do we set the command tag/es_processed? */
+	GraphWriteOp operation;		/* CREATE, UPDATE or DELETE */
+	bool		last;			/* is this for the last clause? */
+	bool		detach;			/* DETACH DELETE */
+	Path	   *subpath;		/* Path(s) producing source data */
+	PlannerInfo *subroot;		/* per-target-table PlannerInfos */
+	List	   *pattern;		/* graph pattern (list of paths) for CREATE */
+	List	   *exprs;			/* expression list for DELETE */
+} ModifyGraphPath;
+
+/*
  * Restriction clause info.
  *
  * We create one of these for each AND sub-clause of a restriction condition

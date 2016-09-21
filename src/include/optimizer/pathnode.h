@@ -229,6 +229,12 @@ extern LimitPath *create_limit_path(PlannerInfo *root, RelOptInfo *rel,
 extern Path *reparameterize_path(PlannerInfo *root, Path *path,
 					Relids required_outer,
 					double loop_count);
+extern ModifyGraphPath *create_modifygraph_path(PlannerInfo *root,
+						RelOptInfo *rel, bool canSetTag,
+						Path *subpath,
+						GraphWriteOp operation,
+						bool last, bool detach,
+						List *pattern, List *exprs);
 
 /*
  * prototypes for relnode.c
