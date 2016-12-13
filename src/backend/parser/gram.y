@@ -551,8 +551,10 @@ static Node *wrapCypherWithSelect(Node *stmt);
 /* Agens Graph */
 %type <node>	CreateGraphStmt CreateLabelStmt AlterLabelStmt alter_label_cmd
 				CreateConstraintStmt DropConstraintStmt
-%type <list>	alter_label_cmds
+				CreatePropertyIndexStmt DropPropertyIndexStmt
+%type <list>	alter_label_cmds prop_idx_params
 %type <str>		opt_constraint_name
+%type <ielem>	prop_idx_elem
 
 /* Cypher */
 %type <node>	CypherStmt cypher_clause cypher_clause_head cypher_clause_prev
@@ -560,6 +562,8 @@ static Node *wrapCypherWithSelect(Node *stmt);
 				cypher_load cypher_match cypher_no_parens cypher_node
 				cypher_path cypher_path_opt_varirable cypher_prop_map_opt
 				cypher_range_idx cypher_range_idx_opt cypher_range_opt
+				cypher_read cypher_read_clauses cypher_read_opt
+				cypher_read_opt_parens cypher_read_stmt cypher_read_with_parens
 				cypher_rel cypher_remove cypher_return cypher_rmitem cypher_set
 				cypher_setitem cypher_skip_opt cypher_variable
 				cypher_variable_opt cypher_varlen_opt cypher_with
@@ -648,7 +652,7 @@ static Node *wrapCypherWithSelect(Node *stmt);
 
 	PARALLEL PARSER PARTIAL PARTITION PASSING PASSWORD PLACING PLANS POLICY
 	POSITION PRECEDING PRECISION PRESERVE PREPARE PREPARED PRIMARY
-	PRIOR PRIVILEGES PROCEDURAL PROCEDURE PROGRAM
+	PRIOR PRIVILEGES PROCEDURAL PROCEDURE PROGRAM PROPERTY
 
 	QUOTE
 
@@ -850,6 +854,7 @@ stmt :
 			| CreateOpFamilyStmt
 			| AlterOpFamilyStmt
 			| CreatePolicyStmt
+			| CreatePropertyIndexStmt
 			| CreatePLangStmt
 			| CreateSchemaStmt
 			| CreateSeqStmt
@@ -879,6 +884,7 @@ stmt :
 			| DropOpFamilyStmt
 			| DropOwnedStmt
 			| DropPolicyStmt
+			| DropPropertyIndexStmt
 			| DropPLangStmt
 			| DropRuleStmt
 			| DropStmt
@@ -10753,7 +10759,7 @@ table_ref:	relation_expr opt_alias_clause
 					}
 					$$ = (Node *) n;
 				}
-			| cypher_with_parens opt_alias_clause
+			| cypher_read_with_parens opt_alias_clause
 				{
 					RangeSubselect *n = makeNode(RangeSubselect);
 					n->lateral = false;
@@ -14062,6 +14068,7 @@ unreserved_keyword:
 			| PROCEDURAL
 			| PROCEDURE
 			| PROGRAM
+			| PROPERTY
 			| QUOTE
 			| RANGE
 			| READ
@@ -14606,10 +14613,198 @@ opt_constraint_name:
 		;
 
 /*
+ * Note: We cannot put TABLESPACE clause after WHERE clause unless we are
+ *       willing to make TABLESPACE a fully reserved word.
+ */
+CreatePropertyIndexStmt:
+			CREATE opt_unique PROPERTY INDEX opt_concurrently opt_index_name
+			ON ColId access_method_clause '(' prop_idx_params ')'
+			opt_reloptions OptTableSpace where_clause
+				{
+					CreatePropertyIndexStmt *n =
+											makeNode(CreatePropertyIndexStmt);
+					n->unique = $2;
+					n->concurrent = $5;
+					n->idxname = $6;
+					n->relation = makeRangeVar(NULL, $8, @8);
+					n->accessMethod = $9;
+					n->indexParams = $11;
+					n->options = $13;
+					n->tableSpace = $14;
+					n->whereClause = $15;
+					n->excludeOpNames = NIL;
+					n->idxcomment = NULL;
+					n->indexOid = InvalidOid;
+					n->oldNode = InvalidOid;
+					n->primary = false;
+					n->isconstraint = false;
+					n->deferrable = false;
+					n->initdeferred = false;
+					n->transformed = false;
+					n->if_not_exists = false;
+					$$ = (Node *)n;
+				}
+			| CREATE opt_unique PROPERTY INDEX opt_concurrently IF_P NOT EXISTS
+			index_name ON ColId access_method_clause '(' prop_idx_params ')'
+			opt_reloptions OptTableSpace where_clause
+				{
+					CreatePropertyIndexStmt *n =
+											makeNode(CreatePropertyIndexStmt);
+					n->unique = $2;
+					n->concurrent = $5;
+					n->idxname = $9;
+					n->relation = makeRangeVar(NULL, $11, @11);
+					n->accessMethod = $12;
+					n->indexParams = $14;
+					n->options = $16;
+					n->tableSpace = $17;
+					n->whereClause = $18;
+					n->excludeOpNames = NIL;
+					n->idxcomment = NULL;
+					n->indexOid = InvalidOid;
+					n->oldNode = InvalidOid;
+					n->primary = false;
+					n->isconstraint = false;
+					n->deferrable = false;
+					n->initdeferred = false;
+					n->transformed = false;
+					n->if_not_exists = true;
+					$$ = (Node *)n;
+				}
+		;
+
+prop_idx_params:
+			prop_idx_elem							{ $$ = list_make1($1); }
+			| prop_idx_params ',' prop_idx_elem		{ $$ = lappend($1, $3); }
+		;
+
+/*
+ * Property index attributes can be either simple column references,
+ * or arbitrary expressions in parens.
+ */
+prop_idx_elem:
+			columnref opt_collate opt_class opt_asc_desc opt_nulls_order
+				{
+					$$ = makeNode(IndexElem);
+					$$->name = NULL;
+					$$->expr = $1;
+					$$->indexcolname = NULL;
+					$$->collation = $2;
+					$$->opclass = $3;
+					$$->ordering = $4;
+					$$->nulls_ordering = $5;
+				}
+			| '(' a_expr ')' opt_collate opt_class opt_asc_desc opt_nulls_order
+				{
+					$$ = makeNode(IndexElem);
+					$$->name = NULL;
+					$$->expr = $2;
+					$$->indexcolname = NULL;
+					$$->collation = $4;
+					$$->opclass = $5;
+					$$->ordering = $6;
+					$$->nulls_ordering = $7;
+				}
+		;
+
+DropPropertyIndexStmt:
+			DROP PROPERTY INDEX name opt_drop_behavior
+				{
+					DropPropertyIndexStmt *n = makeNode(DropPropertyIndexStmt);
+					n->idxname = $4;
+					n->behavior = $5;
+					n->missing_ok = FALSE;
+					$$ = (Node *)n;
+				}
+			| DROP PROPERTY INDEX IF_P EXISTS name opt_drop_behavior
+				{
+					DropPropertyIndexStmt *n = makeNode(DropPropertyIndexStmt);
+					n->idxname = $6;
+					n->behavior = $7;
+					n->missing_ok = TRUE;
+					$$ = (Node *)n;
+				}
+		;
+
+/*
  * Cypher
  */
 
-CypherStmt:	cypher_no_parens
+cypher_read_opt_parens:
+			cypher_read_stmt
+			| cypher_read_with_parens
+		;
+
+cypher_read_with_parens:
+			'(' cypher_read_stmt ')'			{ $$ = $2; }
+			| '(' cypher_read_with_parens ')'	{ $$ = $2; }
+
+cypher_read_stmt:
+			cypher_read_opt cypher_return
+				{
+					CypherClause *clause;
+					CypherStmt *n;
+
+					clause = makeNode(CypherClause);
+					clause->detail = $2;
+					clause->prev = $1;
+
+					n = makeNode(CypherStmt);
+					n->last = (Node *) clause;
+					$$ = (Node *) n;
+				}
+			| cypher_read_opt_parens UNION all_or_distinct
+			  cypher_read_opt_parens
+				{
+					$$ = makeCypherSetOp(SETOP_UNION, $3, $1, $4);
+				}
+			| cypher_read_opt_parens INTERSECT all_or_distinct
+			  cypher_read_opt_parens
+				{
+					$$ = makeCypherSetOp(SETOP_INTERSECT, $3, $1, $4);
+				}
+			| cypher_read_opt_parens EXCEPT all_or_distinct
+			  cypher_read_opt_parens
+				{
+					$$ = makeCypherSetOp(SETOP_EXCEPT, $3, $1, $4);
+				}
+		;
+
+cypher_read_opt:
+			cypher_read
+			| /* EMPTY */		{ $$ = NULL; }
+		;
+
+cypher_read:
+			cypher_match
+				{
+					CypherClause *n = makeNode(CypherClause);
+					n->detail = $1;
+					$$ = (Node *) n;
+				}
+			| cypher_load
+				{
+					CypherClause *n = makeNode(CypherClause);
+					n->detail = $1;
+					$$ = (Node *) n;
+				}
+			| cypher_read cypher_read_clauses
+				{
+					CypherClause *n = makeNode(CypherClause);
+					n->detail = $2;
+					n->prev = $1;
+					$$ = (Node *) n;
+				}
+		;
+
+cypher_read_clauses:
+			cypher_match
+			| cypher_with
+			| cypher_load
+		;
+
+CypherStmt:
+			cypher_no_parens
 			| cypher_with_parens
 		;
 

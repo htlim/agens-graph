@@ -25,7 +25,10 @@
 #include "postgres.h"
 
 #include "access/sysattr.h"
+#include "catalog/ag_graph_fn.h"
 #include "catalog/pg_type.h"
+#include "catalog/objectaddress.h"
+#include "commands/graphcmds.h"
 #include "miscadmin.h"
 #include "nodes/makefuncs.h"
 #include "nodes/nodeFuncs.h"
@@ -389,6 +392,9 @@ transformDeleteStmt(ParseState *pstate, DeleteStmt *stmt)
 
 	qry->commandType = CMD_DELETE;
 
+	if (RangeVarIsLabel(stmt->relation) && DisableGraphDML)
+		elog(ERROR, "DML query to graph objcts is not allowed");
+
 	/* process the WITH clause independently of all else */
 	if (stmt->withClause)
 	{
@@ -467,6 +473,9 @@ transformInsertStmt(ParseState *pstate, InsertStmt *stmt)
 	ListCell   *lc;
 	bool		isOnConflictUpdate;
 	AclMode		targetPerms;
+
+	if (RangeVarIsLabel(stmt->relation) && DisableGraphDML)
+		elog(ERROR, "DML query to graph objcts is not allowed");
 
 	/* There can't be any outer WITH to worry about */
 	Assert(pstate->p_ctenamespace == NIL);
@@ -1893,7 +1902,10 @@ transformSetOperationTree(ParseState *pstate, SelectStmt *stmt,
 		if (isTopLevel &&
 			pstate->p_parent_cte &&
 			pstate->p_parent_cte->cterecursive)
+		{
 			determineRecursiveColTypes(pstate, op->larg, ltargetlist);
+			op->maxDepth = pstate->p_parent_cte->maxdepth;
+		}
 
 		/*
 		 * Recursively transform the right child node.
@@ -2141,6 +2153,9 @@ transformUpdateStmt(ParseState *pstate, UpdateStmt *stmt)
 	Query	   *qry = makeNode(Query);
 	ParseNamespaceItem *nsitem;
 	Node	   *qual;
+
+	if (RangeVarIsLabel(stmt->relation) && DisableGraphDML)
+		elog(ERROR, "DML query to graph objcts is not allowed");
 
 	qry->commandType = CMD_UPDATE;
 	pstate->p_is_insert = false;
@@ -2833,28 +2848,109 @@ test_raw_expression_coverage(Node *node, void *context)
 static Query *
 transformCypherStmt(ParseState *pstate, CypherStmt *stmt)
 {
-	Node	   *clause = stmt->last;
-	NodeTag		type = cypherClauseTag(clause);
+	CypherClause *clause;
+	NodeTag		type;
+	bool		valid = true;
+	bool		endret = false;
+	NodeTag		update_type = T_Invalid;
+	bool		read = false;
 
+	clause = (CypherClause *) stmt->last;
+	type = cypherClauseTag(clause);
 	switch (type)
 	{
 		case T_CypherProjection:
-			if (cypherProjectionKind(clause) != CP_RETURN)
-				break;
-			/* fall-through */
+			if (cypherProjectionKind(clause->detail) == CP_RETURN)
+				endret = true;
+			else
+				valid = false;
+			break;
 		case T_CypherCreateClause:
 		case T_CypherDeleteClause:
 		case T_CypherSetClause:
-			return transformStmt(pstate, clause);
+			update_type = type;
+			break;
 		default:
+			valid = false;
 			break;
 	}
 
-	ereport(ERROR,
-			(errcode(ERRCODE_SYNTAX_ERROR),
-			 errmsg("Cypher query must end with RETURN or update clause")));
+	if (!valid)
+		ereport(ERROR,
+				(errcode(ERRCODE_SYNTAX_ERROR),
+				 errmsg("Cypher query must end with RETURN or update clause")));
 
-	return NULL;
+	clause = (CypherClause *) clause->prev;
+	while (clause != NULL)
+	{
+		type = cypherClauseTag(clause);
+		switch (type)
+		{
+			case T_CypherMatchClause:
+				read = true;
+				break;
+			case T_CypherProjection:
+				if (cypherProjectionKind(clause->detail) == CP_RETURN)
+				{
+					ereport(ERROR,
+							(errcode(ERRCODE_SYNTAX_ERROR),
+							 errmsg("RETURN must be at the end of the query")));
+				}
+				else
+				{
+					/* CP_WITH */
+					if (update_type != T_Invalid &&
+						update_type != T_CypherCreateClause)
+						read = true;
+				}
+				break;
+			case T_CypherCreateClause:
+				if (update_type == T_Invalid)
+					update_type = T_CypherCreateClause;
+				else if (update_type != T_CypherCreateClause)
+					ereport(ERROR,
+							(errcode(ERRCODE_SYNTAX_ERROR),
+							 errmsg("There must be one type of consecutive update clauses")));
+				if (read)
+					ereport(ERROR,
+							(errcode(ERRCODE_SYNTAX_ERROR),
+							 errmsg("Cypher read clauses cannot follow update clauses")));
+				break;
+			case T_CypherDeleteClause:
+			case T_CypherSetClause:
+				if (endret)
+				{
+					if (type == T_CypherDeleteClause)
+						ereport(ERROR,
+								(errcode(ERRCODE_SYNTAX_ERROR),
+								 errmsg("Cypher DELETE clause cannot end with RETURN clause")));
+					else
+						ereport(ERROR,
+								(errcode(ERRCODE_SYNTAX_ERROR),
+								 errmsg("Cypher SET/REMOVE clause cannot end with RETURN clause")));
+				}
+				if (type != update_type)
+					ereport(ERROR,
+							(errcode(ERRCODE_SYNTAX_ERROR),
+							 errmsg("There must be one type of consecutive update clauses")));
+				if (read)
+					ereport(ERROR,
+							(errcode(ERRCODE_SYNTAX_ERROR),
+							 errmsg("Cypher read clauses cannot follow update clauses")));
+				break;
+				break;
+			case T_CypherLoadClause:
+				read = true;
+				break;
+			default:
+				elog(ERROR, "unrecognized Cypher clause type: %d", type);
+				break;
+		}
+
+		clause = (CypherClause *) clause->prev;
+	}
+
+	return transformStmt(pstate, stmt->last);
 }
 
 static Query *

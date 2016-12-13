@@ -5327,13 +5327,15 @@ DATA(insert OID = 3444 ( pg_control_init PGNSP PGUID 12 1 0 0 0 f f f f t f v s 
 DESCR("pg_controldata init state information as a function");
 
 /* graph */
-DATA(insert OID = 7000 ( graphid		PGNSP PGUID 12 1 0 0 0 f f f f t f i s 2 0 7002 "26 20" _null_ _null_ _null_ _null_ _null_ graphid _null_ _null_ _null_ ));
+DATA(insert OID = 7000 ( graphid		PGNSP PGUID 12 1 0 0 0 f f f f t f i s 2 0 7002 "23 20" _null_ _null_ _null_ _null_ _null_ graphid _null_ _null_ _null_ ));
 DATA(insert OID = 7003 ( graphid_in		PGNSP PGUID 12 1 0 0 0 f f f f t f i s 1 0 7002 "2275" _null_ _null_ _null_ _null_ _null_ graphid_in _null_ _null_ _null_ ));
 DESCR("I/O");
 DATA(insert OID = 7004 ( graphid_out	PGNSP PGUID 12 1 0 0 0 f f f f t f i s 1 0 2275 "7002" _null_ _null_ _null_ _null_ _null_ graphid_out _null_ _null_ _null_ ));
 DESCR("I/O");
-DATA(insert OID = 7007 ( graphid_oid	PGNSP PGUID 12 1 0 0 0 f f f f t f i s 1 0 26 "7002" _null_ _null_ _null_ _null_ _null_ graphid_oid _null_ _null_ _null_ ));
-DATA(insert OID = 7008 ( graphid_lid	PGNSP PGUID 12 1 0 0 0 f f f f t f i s 1 0 20 "7002" _null_ _null_ _null_ _null_ _null_ graphid_lid _null_ _null_ _null_ ));
+DATA(insert OID = 7007 ( graphid_labid	PGNSP PGUID 12 1 0 0 0 f f f f t f i s 1 0 23 "7002" _null_ _null_ _null_ _null_ _null_ graphid_labid _null_ _null_ _null_ ));
+DATA(insert OID = 7008 ( graphid_locid	PGNSP PGUID 12 1 0 0 0 f f f f t f i s 1 0 20 "7002" _null_ _null_ _null_ _null_ _null_ graphid_locid _null_ _null_ _null_ ));
+DATA(insert OID = 7009 ( graph_labid	PGNSP PGUID 12 1 0 0 0 f f f f t f s s 1 0 23 "2275" _null_ _null_ _null_ _null_ _null_ graph_labid _null_ _null_ _null_ ));
+DESCR("I/O");
 DATA(insert OID = 7014 ( vertex_out		PGNSP PGUID 12 1 0 0 0 f f f f t f i s 1 0 2275 "7012" _null_ _null_ _null_ _null_ _null_ vertex_out _null_ _null_ _null_ ));
 DESCR("I/O");
 DATA(insert OID = 7016 ( _vertex_out	PGNSP PGUID 12 1 0 0 0 f f f f t f i s 1 0 2275 "7011" _null_ _null_ _null_ _null_ _null_ _vertex_out _null_ _null_ _null_ ));
@@ -5386,14 +5388,19 @@ DESCR("less-equal-greater");
 /* Hash for graphid */
 DATA(insert OID = 7097 ( graphid_hash	PGNSP PGUID 12 1 0 0 0 f f f f t f i s 1 0 23 "7002" _null_ _null_ _null_ _null_ _null_ graphid_hash _null_ _null_ _null_ ));
 /* GIN (as BTree) for graphid */
-DATA(insert OID = 7100 ( gin_extract_value_graphid	 PGNSP PGUID 12 1 0 0 0 f f f f t f i s 3 0 2281 "7002 2281 2281" _null_ _null_ _null_ _null_ _null_ gin_extract_value_graphid _null_ _null_ _null_ ));
+DATA(insert OID = 7100 ( gin_extract_value_graphid	PGNSP PGUID 12 1 0 0 0 f f f f t f i s 3 0 2281 "7002 2281 2281" _null_ _null_ _null_ _null_ _null_ gin_extract_value_graphid _null_ _null_ _null_ ));
 DESCR("GIN graphid support");
-DATA(insert OID = 7101 ( gin_extract_query_graphid	 PGNSP PGUID 12 1 0 0 0 f f f f t f i s 7 0 2281 "7002 2281 21 2281 2281 2281 2281" _null_ _null_ _null_ _null_ _null_ gin_extract_query_graphid _null_ _null_ _null_ ));
+DATA(insert OID = 7101 ( gin_extract_query_graphid	PGNSP PGUID 12 1 0 0 0 f f f f t f i s 7 0 2281 "7002 2281 21 2281 2281 2281 2281" _null_ _null_ _null_ _null_ _null_ gin_extract_query_graphid _null_ _null_ _null_ ));
 DESCR("GIN graphid support");
-DATA(insert OID = 7102 ( gin_consistent_graphid		 PGNSP PGUID 12 1 0 0 0 f f f f t f i s 8 0 16 "2281 21 7002 23 2281 2281 2281 2281" _null_ _null_ _null_ _null_ _null_ gin_consistent_graphid _null_ _null_ _null_ ));
+DATA(insert OID = 7102 ( gin_consistent_graphid		PGNSP PGUID 12 1 0 0 0 f f f f t f i s 8 0 16 "2281 21 7002 23 2281 2281 2281 2281" _null_ _null_ _null_ _null_ _null_ gin_consistent_graphid _null_ _null_ _null_ ));
 DESCR("GIN graphid support");
 DATA(insert OID = 7103 ( gin_compare_partial_graphid PGNSP PGUID 12 1 0 0 0 f f f f t f i s 4 0 23 "7002 7002 21 2281" _null_ _null_ _null_ _null_ _null_ gin_compare_partial_graphid _null_ _null_ _null_ ));
 DESCR("GIN graphid support");
+/* describe labels */
+DATA(insert OID = 7110 ( ag_get_propindexdef		PGNSP PGUID 12 1 0 0 0 f f f f t f s s 1 0 25 "26" _null_ _null_ _null_ _null_ _null_ ag_get_propindexdef _null_ _null_ _null_ ));
+DESCR("describe property index");
+DATA(insert OID = 7111 ( ag_get_graphconstraintdef	PGNSP PGUID 12 1 0 0 0 f f f f t f s s 1 0 25 "26" _null_ _null_ _null_ _null_ _null_ ag_get_graphconstraintdef _null_ _null_ _null_ ));
+DESCR("describe constraint");
 
 /*
  * Symbolic values for provolatile column: these indicate whether the result

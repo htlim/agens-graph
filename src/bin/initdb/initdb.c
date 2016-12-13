@@ -253,7 +253,9 @@ static void write_version_file(char *extrapath);
 static void set_null_conf(void);
 static void test_config_settings(void);
 static void setup_config(void);
+#ifdef USE_PG_STATSINFO
 static void setup_config_checkpoint(void);
+#endif
 static void bootstrap_template1(void);
 static void setup_auth(FILE *cmdfd);
 static void get_su_pwd(void);
@@ -1301,10 +1303,17 @@ setup_config(void)
 #endif
 
 	/* set shared preload libraries */
+#ifdef USE_PG_STATSINFO
 	conflines = replace_token(conflines,
 							"#shared_preload_libraries = ''",
 							"shared_preload_libraries = "
 									"'pg_stat_statements,pg_statsinfo'");
+#else
+	conflines = replace_token(conflines,
+							"#shared_preload_libraries = ''",
+							"shared_preload_libraries = "
+									"'pg_stat_statements'");
+#endif
 
 	/* pg_stat_statements */
 	conflines = replace_token(conflines,
@@ -1314,6 +1323,7 @@ setup_config(void)
 							"#pg_stat_statements.track = top",
 							"pg_stat_statements.track = all");
 
+#ifdef USE_PG_STATSINFO
 	/*
 	 * recommanded configuration for pg_statsinfo
 	 */
@@ -1358,6 +1368,7 @@ setup_config(void)
 							"#pg_statsinfo.textlog_line_prefix = '%t %p '",
 							"pg_statsinfo.textlog_line_prefix = "
 									"'%t %p %c-%l %x %q(%u, %d, %r, %a) '");
+#endif
 
 	snprintf(path, sizeof(path), "%s/postgresql.conf", pg_data);
 
@@ -1494,6 +1505,7 @@ setup_config(void)
 	check_ok();
 }
 
+#ifdef USE_PG_STATSINFO
 /*
  * Set log_checkpoints after create db.
  */
@@ -1514,6 +1526,7 @@ setup_config_checkpoint(void)
 
 	free(conflines);
 }
+#endif
 
 /*
  * run the BKI script in bootstrap mode to create template1
@@ -2821,7 +2834,10 @@ setup_pgdata(void)
 
 	if (strlen(pg_data) == 0)
 	{
-		pgdata_get_env = getenv("PGDATA");
+		pgdata_get_env = getenv("AGDATA");
+		if (!pgdata_get_env)
+			pgdata_get_env = getenv("PGDATA");
+
 		if (pgdata_get_env && strlen(pgdata_get_env))
 		{
 			/* PGDATA found */
@@ -3397,7 +3413,9 @@ initialize_data_directory(void)
 
 	PG_CMD_CLOSE;
 
+#ifdef USE_PG_STATSINFO
 	setup_config_checkpoint();
+#endif
 
 	check_ok();
 }

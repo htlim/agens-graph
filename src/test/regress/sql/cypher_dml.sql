@@ -10,7 +10,7 @@ CREATE TABLE history (year, event) AS VALUES
 (1996, 'PostgreSQL'),
 (2016, 'Graph');
 
-DROP GRAPH agens;
+DROP GRAPH agens CASCADE;
 CREATE GRAPH agens;
 
 --
@@ -140,19 +140,19 @@ CREATE (:person {name: 'someone'})-[:knows]->(:person {name: 'somebody'}),
 OPTIONAL MATCH (n)-[r]->(p), (m)-[s]->(q)
 RETURN n.name AS n, type(r) AS r, p.name AS p,
        m.name AS m, type(s) AS s, q.name AS q
-ORDER BY n, p, m, s;
+ORDER BY n, p, m, q;
 
 MATCH (n:person), (m:person) WHERE id(n) <> id(m)
 OPTIONAL MATCH (n)-[r]->(p), (m)-[s]->(q)
 RETURN n.name AS n, type(r) AS r, p.name AS p,
        m.name AS m, type(s) AS s, q.name AS q
-ORDER BY n, p, m, s;
+ORDER BY n, p, m, q;
 
 MATCH (n:person), (m:person) WHERE id(n) <> id(m)
 OPTIONAL MATCH (n)-[r]->(p), (m)-[s]->(q) WHERE m.name = 'someone'
 RETURN n.name AS n, type(r) AS r, p.name AS p,
        m.name AS m, type(s) AS s, q.name AS q
-ORDER BY n, p, m, s;
+ORDER BY n, p, m, q;
 
 -- Variable Length Relationship
 
@@ -171,6 +171,8 @@ CREATE (:time {sec: 1})-[:goes]->
        (:time {sec: 7})-[:goes]->
        (:time {sec: 8})-[:goes]->
        (:time {sec: 9});
+
+CREATE (:time {sec: 9})-[:goes*1..2]->(:time {sec: 10});
 
 MATCH (a:time)-[x:goes*3]->(b:time)
 RETURN a.sec AS a, array_length(x, 1) AS x, b.sec AS b;
@@ -213,6 +215,9 @@ MATCH (b)<-[x:goes*2]-(a:time)
 RETURN d.sec AS d, array_length(z, 1) AS z,
        c.sec AS c, type(y) AS y,
        b.sec AS b, array_length(x, 1) AS x, a.sec AS a;
+
+MATCH (a:time)-[x*0..2]-(b)
+RETURN a.sec AS a, array_length(x, 1) AS x, b.sec AS b;
 
 CREATE (:time {sec: 11})-[:goes {int: 1}]->
        (:time {sec: 12})-[:goes {int: 1}]->
@@ -364,6 +369,13 @@ MATCH (n)-[r]->(m) REMOVE m.name;
 
 MATCH (n)-[r]->(m)
 RETURN properties(n) as n, properties(r) as r, properties(m) as m;
+
+-- multiple SET
+
+MATCH (n)-[r]->(m) SET r.l = '"x"' SET r.l = '"y"';
+
+MATCH (n)-[r]->(m)
+RETURN properties(r) as r;
 
 -- cleanup
 

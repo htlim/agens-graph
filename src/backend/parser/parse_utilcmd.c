@@ -142,6 +142,7 @@ static bool isLabelKind(RangeVar *label, char labkind);
 static void transformLabelIdDefinition(CreateStmtContext *cxt, ColumnDef *col);
 static CommentStmt *makeComment(ObjectType type, RangeVar *name, char *desc);
 static Node *makePropertiesIndirectionMutator(Node *node);
+static bool isPropertyIndex(Oid indexoid);
 
 
 /*
@@ -2186,6 +2187,9 @@ transformRuleStmt(RuleStmt *stmt, const char *queryString,
 	 */
 	rel = heap_openrv(stmt->relation, AccessExclusiveLock);
 
+	if (OidIsValid(get_relid_laboid(rel->rd_id)))
+		elog(ERROR, "cannot create rule on graph label");
+
 	if (rel->rd_rel->relkind == RELKIND_MATVIEW)
 		ereport(ERROR,
 				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
@@ -2490,7 +2494,7 @@ transformAlterTableStmt(Oid relid, AlterTableStmt *stmt,
 	AlterTableCmd *newcmd;
 	RangeTblEntry *rte;
 
-	if (OidIsValid(get_relid_labid(relid))
+	if (OidIsValid(get_relid_laboid(relid))
 		&& stmt->relkind != OBJECT_VLABEL
 		&& stmt->relkind != OBJECT_ELABEL)
 		elog(ERROR, "cannot ALTER TABLE on graph label");
@@ -3001,8 +3005,17 @@ setSchemaName(char *context_schema, char **stmt_schema_name)
 List *
 transformCreateGraphStmt(CreateGraphStmt *stmt)
 {
+	CreateSeqStmt *labseq;
 	CreateLabelStmt	*vertex;
 	CreateLabelStmt	*edge;
+
+	labseq = makeNode(CreateSeqStmt);
+	labseq->sequence = makeRangeVar(stmt->graphname, AG_LABEL_SEQ, -1);
+	labseq->options =
+			list_make2(makeDefElem("maxvalue", (Node *) makeInteger(USHRT_MAX)),
+					   makeDefElem("cycle", (Node *) makeInteger(TRUE)));
+	labseq->ownerId = InvalidOid;
+	labseq->if_not_exists = false;
 
 	vertex = makeNode(CreateLabelStmt);
 	vertex->labelKind = LABEL_VERTEX;
@@ -3014,7 +3027,7 @@ transformCreateGraphStmt(CreateGraphStmt *stmt)
 	edge->relation = makeRangeVar(stmt->graphname, AG_EDGE, -1);
 	edge->inhRelations = NIL;
 
-	return list_make2(vertex, edge);
+	return list_make3(labseq, vertex, edge);
 }
 
 /*
@@ -3028,11 +3041,12 @@ transformCreateGraphStmt(CreateGraphStmt *stmt)
 List *
 transformCreateLabelStmt(CreateLabelStmt *labelStmt, const char *queryString)
 {
+	RangeVar   *label;
+	char	   *graphname;
 	ParseState *pstate;
 	ParseCallbackState pcbstate;
 	Oid			existing_relid;
 	CreateStmt *stmt;
-	char	   *graphname;
 	List	   *indexlist;
 	CreateStmtContext cxt;
 	ListCell   *elements;
@@ -3044,13 +3058,18 @@ transformCreateLabelStmt(CreateLabelStmt *labelStmt, const char *queryString)
 	List	   *save_alist;
 	List	   *result;
 
+	label = copyObject(labelStmt->relation);
+	/* set graph schema name, if not specified */
+	if (label->schemaname == NULL)
+		label->schemaname = get_graph_path();
+	graphname = label->schemaname;
+
 	pstate = make_parsestate(NULL);
 	pstate->p_sourcetext = queryString;
 
 	setup_parser_errposition_callback(&pcbstate, pstate,
-									  labelStmt->relation->location);
-	RangeVarGetAndCheckCreationNamespace(labelStmt->relation, NoLock,
-										 &existing_relid);
+									  label->location);
+	RangeVarGetAndCheckCreationNamespace(label, NoLock, &existing_relid);
 	cancel_parser_errposition_callback(&pcbstate);
 
 	/*
@@ -3064,15 +3083,14 @@ transformCreateLabelStmt(CreateLabelStmt *labelStmt, const char *queryString)
 			ereport(NOTICE,
 					(errcode(ERRCODE_DUPLICATE_TABLE),
 					 errmsg("label \"%s\" already exists, skipping",
-							labelStmt->relation->relname)));
+							label->relname)));
 			return NIL;
 		}
 		else
 		{
 			ereport(ERROR,
 					(errcode(ERRCODE_DUPLICATE_TABLE),
-					 errmsg("label \"%s\" already exists",
-							labelStmt->relation->relname)));
+					 errmsg("label \"%s\" already exists", label->relname)));
 		}
 	}
 
@@ -3082,16 +3100,11 @@ transformCreateLabelStmt(CreateLabelStmt *labelStmt, const char *queryString)
 
 	stmt = makeNode(CreateStmt);
 
-	stmt->relation = copyObject(labelStmt->relation);
+	stmt->relation = label;
 	stmt->options = copyObject(labelStmt->options);
 	stmt->oncommit = ONCOMMIT_NOOP;
 	stmt->tablespacename = labelStmt->tablespacename;
 	stmt->if_not_exists = labelStmt->if_not_exists;
-
-	/* set graph schema name, if not specified */
-	if (stmt->relation->schemaname == NULL)
-		stmt->relation->schemaname = get_graph_path();
-	graphname = stmt->relation->schemaname;
 
 	/* set appropriate table elements and indexes */
 	if (labelStmt->labelKind == LABEL_VERTEX)
@@ -3228,7 +3241,7 @@ transformCreateLabelStmt(CreateLabelStmt *labelStmt, const char *queryString)
 		comment = makeComment(OBJECT_VLABEL, stmt->relation, labdesc);
 		cxt.alist = lappend(cxt.alist, comment);
 	}
-	else if(strcmp(labelStmt->relation->relname, AG_EDGE) == 0)
+	else if (strcmp(labelStmt->relation->relname, AG_EDGE) == 0)
 	{
 		snprintf(descbuf, sizeof(descbuf), "base edge label of graph %s",
 				 graphname);
@@ -3244,8 +3257,10 @@ transformCreateLabelStmt(CreateLabelStmt *labelStmt, const char *queryString)
 
 	/* save original alist for indexes and constraints */
 	save_alist = cxt.alist;
+	cxt.alist = NULL;
 
-	cxt.alist = indexlist;
+	transformIndexConstraints(&cxt);
+	cxt.alist = list_concat(cxt.alist, indexlist);
 	transformFKConstraints(&cxt, true, false);
 
 	stmt->tableElts = cxt.columns;
@@ -3420,14 +3435,14 @@ makeEdgeIndex(RangeVar *label)
 											"idx", graphid);
 	start_idx->relation = copyObject(label);
 	start_idx->accessMethod = "btree";
-	start_idx->indexParams = list_make3(start_col, end_col, id_col);
+	start_idx->indexParams = list_make2(start_col, end_col);
 
 	end_idx = makeNode(IndexStmt);
 	end_idx->idxname = ChooseRelationName(labname, AG_END_ID,
 										  "idx", graphid);
 	end_idx->relation = copyObject(label);
 	end_idx->accessMethod = "btree";
-	end_idx->indexParams = list_make3(end_col, start_col, id_col);
+	end_idx->indexParams = list_make2(end_col, start_col);
 
 	prop_idx = makeNode(IndexStmt);
 	prop_idx->idxname = ChooseRelationName(labname, AG_ELEM_PROP_MAP,
@@ -3443,12 +3458,12 @@ static bool
 isLabelKind(RangeVar *label, char labkind)
 {
 	Oid			graphid;
-	Oid			labelid;
+	Oid			laboid;
 
 	graphid = get_graphname_oid(label->schemaname);
-	labelid = get_labname_labid(label->relname, graphid);
+	laboid = get_labname_laboid(label->relname, graphid);
 
-	return (labelid != InvalidOid && get_labid_labkind(labelid) == labkind);
+	return (laboid != InvalidOid && get_laboid_labkind(laboid) == labkind);
 }
 
 /* See transformColumnDefinition() */
@@ -3462,9 +3477,9 @@ transformLabelIdDefinition(CreateStmtContext *cxt, ColumnDef *col)
 	List	   *attnamelist;
 	AlterSeqStmt *altseqstmt;
 	char	   *qname;
-	A_Const    *relname;
-	TypeCast   *castrel;
-	A_Const    *seqname;
+	A_Const	   *relname;
+	FuncCall   *fclabid;
+	A_Const	   *seqname;
 	TypeCast   *castseq;
 	FuncCall   *fcnextval;
 	FuncCall   *fcgraphid;
@@ -3504,7 +3519,7 @@ transformLabelIdDefinition(CreateStmtContext *cxt, ColumnDef *col)
 	/*
 	 * add DEFAULT constraint to the column
 	 *
-	 * graphid(`relname`::regclass, nextval(`seqname`::regclass))
+	 * graphid(graph_labid(`relname`), nextval(`seqname`::regclass))
 	 */
 
 	qname = quote_qualified_identifier(snamespace, cxt->relation->relname);
@@ -3512,10 +3527,8 @@ transformLabelIdDefinition(CreateStmtContext *cxt, ColumnDef *col)
 	relname->val.type = T_String;
 	relname->val.val.str = qname;
 	relname->location = -1;
-	castrel = makeNode(TypeCast);
-	castrel->typeName = SystemTypeName("regclass");
-	castrel->arg = (Node *) relname;
-	castrel->location = -1;
+	fclabid = makeFuncCall(SystemFuncName("graph_labid"),
+						   list_make1(relname), -1);
 	qname = quote_qualified_identifier(snamespace, sname);
 	seqname = makeNode(A_Const);
 	seqname->val.type = T_String;
@@ -3528,7 +3541,7 @@ transformLabelIdDefinition(CreateStmtContext *cxt, ColumnDef *col)
 	fcnextval = makeFuncCall(SystemFuncName("nextval"),
 							 list_make1(castseq), -1);
 	fcgraphid = makeFuncCall(SystemFuncName("graphid"),
-							 list_make2(castrel, fcnextval), -1);
+							 list_make2(fclabid, fcnextval), -1);
 	defid = makeNode(Constraint);
 	defid->contype = CONSTR_DEFAULT;
 	defid->location = -1;
@@ -3618,7 +3631,7 @@ transformCreateConstraintStmt(ParseState *pstate,
 {
 	RangeVar   *label;
 	Oid			graphid;
-	Oid			labid;
+	Oid			laboid;
 	char		labkind;
 	ObjectType	objtype;
 	Node	   *propExpr;
@@ -3634,8 +3647,8 @@ transformCreateConstraintStmt(ParseState *pstate,
 	if (graphid == InvalidOid)
 		elog(ERROR, "invalid graph path \"%s\"", label->schemaname);
 
-	labid = get_labname_labid(label->relname, graphid);
-	labkind = get_labid_labkind(labid);
+	laboid = get_labname_laboid(label->relname, graphid);
+	labkind = get_laboid_labkind(laboid);
 
 	if (labkind == LABEL_KIND_VERTEX)
 	{
@@ -3726,7 +3739,7 @@ transformDropConstraintStmt(ParseState *pstate,
 {
 	RangeVar   *label;
 	Oid			graphid;
-	Oid			labid;
+	Oid			laboid;
 	char		labkind;
 	ObjectType	objtype;
 	AlterTableCmd *atcmd;
@@ -3740,8 +3753,8 @@ transformDropConstraintStmt(ParseState *pstate,
 	if (graphid == InvalidOid)
 		elog(ERROR, "invalid graph path \"%s\"", label->schemaname);
 
-	labid = get_labname_labid(label->relname, graphid);
-	labkind = get_labid_labkind(labid);
+	laboid = get_labname_laboid(label->relname, graphid);
+	labkind = get_laboid_labkind(laboid);
 
 	if (labkind == LABEL_KIND_VERTEX)
 	{
@@ -3822,4 +3835,222 @@ makePropertiesIndirectionMutator(Node *node)
 
 	return raw_expression_tree_mutator(node, makePropertiesIndirectionMutator,
 									   NULL);
+}
+
+/*
+ * transformIndexStmt - parse analysis for CREATE PROPERTY INDEX
+ *
+ * This function is based on transformIndexStmt().
+ *
+ * Return an IndexStmt node using information from an PropertyIndexStmt.
+ */
+IndexStmt *
+transformCreatePropertyIndexStmt(Oid relid, CreatePropertyIndexStmt *stmt,
+								 const char *queryString)
+{
+	IndexStmt  *idxstmt;
+	ParseState *pstate;
+	ListCell   *l;
+	Relation	rel;
+	RangeTblEntry *rte;
+
+	/* Never come in here statement already transformed. */
+	Assert(!stmt->transformed);
+
+	idxstmt = (IndexStmt *) copyObject(stmt);
+	NodeSetTag(idxstmt, T_IndexStmt);
+
+	/* Set up pstate */
+	pstate = make_parsestate(NULL);
+	pstate->p_sourcetext = queryString;
+
+	if (idxstmt->idxname == NULL)
+	{
+		Oid namespaceId;
+
+		namespaceId = get_namespace_oid(idxstmt->relation->schemaname,
+										false);	/* missing_ok */
+
+		idxstmt->idxname = ChooseRelationName(idxstmt->relation->relname,
+											  "property",
+											  "idx",
+											  namespaceId);
+	}
+
+	/*
+	 * Put the parent table into the rtable so that the expressions can refer
+	 * to its fields without qualification.  Caller is responsible for locking
+	 * relation, but we still need to open it.
+	 */
+	rel = relation_open(relid, NoLock);
+	rte = addRangeTableEntryForRelation(pstate, rel, NULL, false, true);
+
+	/* no to join list, yes to namespaces */
+	addRTEtoQuery(pstate, rte, false, true, true);
+
+	/* take care of the where clause */
+	if (idxstmt->whereClause)
+	{
+		/*
+		 * Makes column reference in where clause to expression that
+		 * get jsonb object from AG_ELEM_PROP.
+		 */
+		idxstmt->whereClause =
+						makePropertiesIndirectionMutator(idxstmt->whereClause);
+
+		idxstmt->whereClause = transformWhereClause(pstate,
+													idxstmt->whereClause,
+													EXPR_KIND_INDEX_PREDICATE,
+													"WHERE");
+		/* we have to fix its collations too */
+		assign_expr_collations(pstate, idxstmt->whereClause);
+	}
+
+	/* take care of any index expressions */
+	foreach(l, idxstmt->indexParams)
+	{
+		IndexElem *ielem = (IndexElem *) lfirst(l);
+
+		if (ielem->expr == NULL || ielem->name != NULL)
+		{
+			ereport(ERROR,
+					(errcode(ERRCODE_DATATYPE_MISMATCH),
+					 errmsg("property index must have expressions.")));
+		}
+
+		/*
+		 * makes column reference in expression to expression that
+		 * get jsonb object from AG_ELEM_PROP
+		 */
+		ielem->expr = makePropertiesIndirectionMutator(ielem->expr);
+
+		/* Extract preliminary index col name before transforming expr */
+		if (ielem->indexcolname == NULL)
+			ielem->indexcolname = FigureIndexColname(ielem->expr);
+
+		/* Now do parse transformation of the expression */
+		ielem->expr = transformExpr(pstate, ielem->expr,
+									EXPR_KIND_INDEX_EXPRESSION);
+
+		/* We have to fix its collations too */
+		assign_expr_collations(pstate, ielem->expr);
+
+		/*
+		 * transformExpr() should have already rejected subqueries,
+		 * aggregates, and window functions, based on the EXPR_KIND_ for
+		 * an index expression.
+		 *
+		 * Also reject expressions returning sets; this is for consistency
+		 * with what transformWhereClause() checks for the predicate.
+		 * DefineIndex() will make more checks.
+		 */
+		if (expression_returns_set(ielem->expr))
+			ereport(ERROR,
+					(errcode(ERRCODE_DATATYPE_MISMATCH),
+					 errmsg("property index expression cannot return a set")));
+	}
+
+	/*
+	 * Check that only the base rel is mentioned.  (This should be dead code
+	 * now that add_missing_from is history.)
+	 */
+	if (list_length(pstate->p_rtable) != 1)
+		ereport(ERROR,
+				(errcode(ERRCODE_INVALID_COLUMN_REFERENCE),
+				 errmsg("index expressions and predicates can refer only to the table being indexed")));
+
+	free_parsestate(pstate);
+
+	/* Close relation */
+	heap_close(rel, NoLock);
+
+	/* Mark statement as successfully transformed */
+	idxstmt->transformed = true;
+
+	return idxstmt;
+}
+
+DropStmt *
+transformDropPropertyIndex(DropPropertyIndexStmt *stmt)
+{
+	DropStmt *dropstmt = makeNode(DropStmt);
+	Oid		indexoid;
+	Oid		graphid;
+	Oid		schemaoid;
+	char   *graphname;
+
+	graphname = get_graph_path();
+	graphid = get_graphname_oid(graphname);
+	if (!OidIsValid(graphid))
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_UNDEFINED_OBJECT),
+				 errmsg("graph \"%s\" does not exist", graphname)));
+	}
+
+	/* get schema that exists target index */
+	schemaoid = get_namespace_oid(graphname, false);
+
+	indexoid = get_relname_relid(stmt->idxname, schemaoid);
+	if (!OidIsValid(indexoid) && !stmt->missing_ok)
+		ereport(ERROR,
+				(errcode(ERRCODE_UNDEFINED_OBJECT),
+				 errmsg("index \"%s\" does not exist",
+						stmt->idxname)));
+
+	if (OidIsValid(indexoid) && !isPropertyIndex(indexoid))
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_WRONG_OBJECT_TYPE),
+				 errmsg("\"%s\" is not property index",
+						stmt->idxname)));
+	}
+
+	dropstmt->objects = list_make1(list_make2(makeString(graphname),
+											  makeString(stmt->idxname)));
+	dropstmt->arguments = NIL;
+	dropstmt->removeType = OBJECT_INDEX;
+	dropstmt->behavior = stmt->behavior;
+	dropstmt->missing_ok = stmt->missing_ok;
+	dropstmt->concurrent = false;
+
+	return dropstmt;
+}
+
+static bool
+isPropertyIndex(Oid indexoid)
+{
+	Form_pg_index index;
+	HeapTuple	indexTuple;
+	bool		retval = true;
+	int			i;
+
+	/* Fetch pg_index tuple of source index. */
+	indexTuple = SearchSysCache1(INDEXRELID, ObjectIdGetDatum(indexoid));
+	if (!HeapTupleIsValid(indexTuple))		/* should not happen */
+		elog(ERROR, "cache lookup failed for index %u", indexoid);
+	index = (Form_pg_index) GETSTRUCT(indexTuple);
+
+	/*
+	 * If this index is a table for graph label and is an expressional index,
+	 * decide this is property index.
+	 */
+	if (!OidIsValid(get_relid_laboid(index->indrelid)))
+	{
+		retval = false;
+	}
+	else
+	{
+		for (i = 0; i < index->indnatts; i++)
+		{
+			if (index->indkey.values[i] != 0)
+			{
+				retval = false;
+				break;
+			}
+		}
+	}
+
+	ReleaseSysCache(indexTuple);
+	return retval;
 }

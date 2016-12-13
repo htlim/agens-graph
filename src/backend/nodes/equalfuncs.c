@@ -1020,6 +1020,7 @@ _equalSetOperationStmt(const SetOperationStmt *a, const SetOperationStmt *b)
 	COMPARE_NODE_FIELD(colTypmods);
 	COMPARE_NODE_FIELD(colCollations);
 	COMPARE_NODE_FIELD(groupClauses);
+	COMPARE_SCALAR_FIELD(maxDepth);
 
 	return true;
 }
@@ -2602,6 +2603,7 @@ _equalCommonTableExpr(const CommonTableExpr *a, const CommonTableExpr *b)
 	COMPARE_NODE_FIELD(ctecoltypes);
 	COMPARE_NODE_FIELD(ctecoltypmods);
 	COMPARE_NODE_FIELD(ctecolcollations);
+	COMPARE_SCALAR_FIELD(maxdepth);
 
 	return true;
 }
@@ -2696,6 +2698,44 @@ _equalDropConstraintStmt(const DropConstraintStmt *a,
 {
 	COMPARE_NODE_FIELD(graphlabel);
 	COMPARE_STRING_FIELD(conname);
+
+	return true;
+}
+
+static bool
+_equalCreatePropertyIndexStmt(const CreatePropertyIndexStmt *a,
+							  const CreatePropertyIndexStmt *b)
+{
+	COMPARE_STRING_FIELD(idxname);
+	COMPARE_NODE_FIELD(relation);
+	COMPARE_STRING_FIELD(accessMethod);
+	COMPARE_STRING_FIELD(tableSpace);
+	COMPARE_NODE_FIELD(indexParams);
+	COMPARE_NODE_FIELD(options);
+	COMPARE_NODE_FIELD(whereClause);
+	COMPARE_NODE_FIELD(excludeOpNames);
+	COMPARE_STRING_FIELD(idxcomment);
+	COMPARE_SCALAR_FIELD(indexOid);
+	COMPARE_SCALAR_FIELD(oldNode);
+	COMPARE_SCALAR_FIELD(unique);
+	COMPARE_SCALAR_FIELD(primary);
+	COMPARE_SCALAR_FIELD(isconstraint);
+	COMPARE_SCALAR_FIELD(deferrable);
+	COMPARE_SCALAR_FIELD(initdeferred);
+	COMPARE_SCALAR_FIELD(transformed);
+	COMPARE_SCALAR_FIELD(concurrent);
+	COMPARE_SCALAR_FIELD(if_not_exists);
+
+	return true;
+}
+
+static bool
+_equalDropPropertyIndexStmt(const DropPropertyIndexStmt *a,
+							const DropPropertyIndexStmt *b)
+{
+	COMPARE_STRING_FIELD(idxname);
+	COMPARE_SCALAR_FIELD(behavior);
+	COMPARE_SCALAR_FIELD(missing_ok);
 
 	return true;
 }
@@ -3639,6 +3679,13 @@ equal(const void *a, const void *b)
 			break;
 		case T_DropConstraintStmt:
 			retval = _equalDropConstraintStmt(a, b);
+			break;
+
+		case T_CreatePropertyIndexStmt:
+			retval = _equalCreatePropertyIndexStmt(a, b);
+			break;
+		case T_DropPropertyIndexStmt:
+			retval = _equalDropPropertyIndexStmt(a, b);
 			break;
 
 		case T_CypherStmt:
