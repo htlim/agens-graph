@@ -21,6 +21,8 @@
 #include "lib/pairingheap.h"
 #include "nodes/params.h"
 #include "nodes/plannodes.h"
+#include "utils/array.h"
+#include "utils/graph.h"
 #include "utils/reltrigger.h"
 #include "utils/sortsupport.h"
 #include "utils/tuplestore.h"
@@ -412,6 +414,10 @@ typedef struct EState
 	List	   *es_subplanstates;		/* List of PlanState for SubPlans */
 
 	List	   *es_auxmodifytables;		/* List of secondary ModifyTableStates */
+
+	/* VLE working state: */
+	int			es_num_edgerefrels;
+	Relation   *es_edgerefrels;
 
 	/*
 	 * this ExprContext is for per-output-tuple operations, such as constraint
@@ -1017,6 +1023,33 @@ typedef struct DomainConstraintState
 	ExprState  *check_expr;		/* for CHECK, a boolean expression */
 } DomainConstraintState;
 
+typedef struct EdgeRefPropState
+{
+	ExprState 	xprstate;
+	ExprState  *arg;
+	Relation   *edgerefrels;
+	Snapshot    snapshot;
+} EdgeRefPropState;
+
+typedef struct EdgeRefRowState
+{
+	ExprState 	xprstate;
+	ExprState  *arg;
+	Datum		val;
+	Relation   *edgerefrels;
+	Snapshot    snapshot;
+} EdgeRefRowState;
+
+typedef struct EdgeRefRowsState
+{
+	ExprState 	xprstate;
+	ExprState  *arg;
+	EdgeRefRowState *rowstate;
+	FmgrInfo    aa_flinfo;
+	FunctionCallInfoData aa_fcinfo;
+	FuncExpr	aa_fn_expr;
+	ArrayMetaState iter_meta;
+} EdgeRefRowsState;
 
 /* ----------------------------------------------------------------
  *				 Executor State Trees
@@ -1882,6 +1915,25 @@ typedef struct GroupState
 	bool		grp_done;		/* indicates completion of Group scan */
 } GroupState;
 
+/* ----------------------------------------------------------------
+ *				 Eager State Information
+ * ----------------------------------------------------------------
+ */
+
+/* ----------------
+ *	 EagerState information
+ *
+ *		ss.ss_ScanTupleSlot refers to output of underlying plan.
+ * ----------------
+ */
+typedef struct EagerState
+{
+	ScanState	ss;				/* its first field is NodeTag */
+	bool		child_done;		/* reached end of child plan? */
+	Tuplestorestate *tuplestorestate;
+} EagerState;
+
+
 /* ---------------------
  *	AggState information
  *
@@ -2159,5 +2211,21 @@ typedef struct ModifyGraphState
 	List	   *exprs;			/* expression state list for DELETE */
 	List	   *sets;			/* list of GraphSetProp's for SET/REMOVE */
 } ModifyGraphState;
+
+typedef struct DijkstraState
+{
+	PlanState 		ps;
+	HTAB		   *visited_nodes;
+	pairingheap	   *pq;
+	MemoryContext 	pq_mcxt;
+	ExprState  	   *source;
+	ExprState  	   *target;
+	ExprState  	   *limit;
+	int				n;
+	int				max_n;
+	Graphid 		target_id;
+	bool			is_executed;
+	TupleTableSlot *selfTupleSlot;
+} DijkstraState;
 
 #endif   /* EXECNODES_H */

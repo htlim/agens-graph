@@ -226,6 +226,7 @@ extern LimitPath *create_limit_path(PlannerInfo *root, RelOptInfo *rel,
 				  Path *subpath,
 				  Node *limitOffset, Node *limitCount,
 				  int64 offset_est, int64 count_est);
+extern EagerPath *create_eager_path(RelOptInfo *rel, Path *subpath);
 extern ModifyGraphPath *create_modifygraph_path(PlannerInfo *root,
 						RelOptInfo *rel, bool canSetTag,
 						GraphWriteOp operation, bool last, bool detach,
@@ -235,6 +236,14 @@ extern ModifyGraphPath *create_modifygraph_path(PlannerInfo *root,
 extern Path *reparameterize_path(PlannerInfo *root, Path *path,
 					Relids required_outer,
 					double loop_count);
+
+extern DijkstraPath *create_dijkstra_path(PlannerInfo *root, RelOptInfo *rel,
+										  Path *subpath,
+										  PathTarget *path_target,
+										  int weight, bool weight_out,
+										  Node *end_id, Node *edge_id,
+										  Node *source, Node *target,
+										  Node *limit);
 
 /*
  * prototypes for relnode.c

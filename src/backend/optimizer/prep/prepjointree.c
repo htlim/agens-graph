@@ -790,7 +790,6 @@ pull_up_subqueries_recurse(PlannerInfo *root, Node *jtnode,
 		switch (j->jointype)
 		{
 			case JOIN_INNER:
-
 				/*
 				 * INNER JOIN can allow deletion of either child node, but not
 				 * both.  So right child gets permission to delete only if
@@ -1065,6 +1064,20 @@ pull_up_simple_subquery(PlannerInfo *root, Node *jtnode, RangeTblEntry *rte,
 							 lowest_nulling_outer_join);
 	Assert(parse->setOperations == NULL);
 	parse->havingQual = pullup_replace_vars(parse->havingQual, &rvcontext);
+
+	if (parse->dijkstraSource)
+	{
+		parse->dijkstraEndId = pullup_replace_vars(parse->dijkstraEndId,
+												   &rvcontext);
+		parse->dijkstraEdgeId = pullup_replace_vars(parse->dijkstraEdgeId,
+													&rvcontext);
+		parse->dijkstraSource = pullup_replace_vars(parse->dijkstraSource,
+													&rvcontext);
+		parse->dijkstraTarget = pullup_replace_vars(parse->dijkstraTarget,
+													&rvcontext);
+		parse->dijkstraLimit = pullup_replace_vars(parse->dijkstraLimit,
+												   &rvcontext);
+	}
 
 	/*
 	 * Replace references in the translated_vars lists of appendrels. When
@@ -1451,7 +1464,8 @@ is_simple_subquery(Query *subquery, RangeTblEntry *rte,
 		subquery->limitOffset ||
 		subquery->limitCount ||
 		subquery->hasForUpdate ||
-		subquery->cteList)
+		subquery->cteList ||
+		subquery->dijkstraSource)
 		return false;
 
 	/*

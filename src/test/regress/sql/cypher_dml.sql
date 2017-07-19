@@ -28,7 +28,6 @@ SELECT * FROM (RETURN 3 + 4, 'hello' || ' agens') AS _(lucky, greeting);
 --
 -- CREATE
 --
-
 CREATE VLABEL repo;
 CREATE ELABEL lib;
 CREATE ELABEL doc;
@@ -75,9 +74,21 @@ CREATE (=(SELECT prop FROM t1))-[:lib =(SELECT prop FROM t1)]->();
 
 MATCH (a) WHERE a.name IS NULL DETACH DELETE a;
 DROP TABLE t1;
+
+CREATE GRAPH g_create;
+SET GRAPH_PATH = g_create;
+
+CREATE ELABEL e1;
+
+CREATE p=()-[:e1]->() RETURN p;
+
+DROP GRAPH g_create CASCADE;
+
 --
 -- MATCH
 --
+
+SET GRAPH_PATH = agens;
 
 MATCH (a) RETURN a.name AS a;
 MATCH (a), (a) RETURN a.name AS a;
@@ -292,6 +303,90 @@ match (a:person {id: 3}), (b:person {id: 1}) create (a)-[:knows]->(b);
 
 match (a:person {id: 1})-[x:knows*1..]->(b:person) return a.id, b.id, x;
 
+-- edgeref
+
+-- 1->2->3->4
+-- `->5
+match (a:person {id: 3})-[k:knows]->(b:person {id: 1}) delete k;
+match (a:person {id: 1})-[k:knows]->(b:person {id: 5}) delete k;
+
+create elabel friendships inherits (knows);
+
+match (a:person {id: 1}) create (a)-[:friendships {fromDate:'2014-11-24'}]->(:person {id: 5});
+
+match (a:person {id: 1})-[x:knows*1..2]->(b:person)
+return a.id, b.id, x[1].fromdate;
+
+match (a:person {id: 1})-[x:knows*1..2]->(b:person)
+where x[1].fromdate is not null
+return a.id, b.id, x[1].fromdate;
+
+match (a:person {id: 1})-[x:knows*1..2]->(b:person)
+with x[1].fromdate as fromdate
+return fromdate;
+
+match (a:person {id: 1})-[x:knows*1..2]->(b:person)
+with x[1] as x1
+return x1.fromdate, x1;
+
+match (a:person {id: 1})-[x:knows*1..2]->(b:person)
+where x[2].fromdate is not null
+with x[1] as x1, array_length(x, 1) as l
+return x1, l;
+
+match (a:person {id: 1})-[x:knows*1..2]->(b:person)
+with x[1] as x1, array_length(x, 1) as l
+return x1, l;
+
+match (a:person {id: 1})-[x:knows*1..2]-(b:person)
+with x[1] as x1, array_length(x, 1) as l
+return x1, l;
+
+create elabel familyship inherits (friendships);
+
+match (a:person {id: 5}) create (a)-[:familyship {fromDate:'2015-12-24'}]->(:person {id: 6});
+
+match (a:person {id: 1})-[x:knows*1..2]->(b:person)
+with x[1] as x1, x[2] as x2, array_length(x, 1) as l
+return x1, x2, l;
+
+explain verbose
+match (a:person {id: 1})-[x:knows*1..2]->(b:person)
+with x[1] as x1, x[2] as x2 order by x2 return x1;
+
+explain verbose
+match (a:person {id: 1})-[x:knows*1..2]->(b:person)
+with max(b.id) as id, x[1] as x return *;
+
+explain verbose
+match (a:person {id: 1})-[x:knows*1..2]->(b:person)
+with distinct x as path return *;
+
+explain verbose
+match (a:person {id: 1})-[x:knows*1..2]->(b:person)
+with max(b.id) as id, x as x return *;
+
+explain verbose
+match (a:person {id: 1})-[x:knows*1..2]->(b:person)
+with max(x) as x, b.id as id return *;
+
+explain verbose
+match (a:person {id: 1})-[x:knows*1..2]->(b:person)
+return x, x is not null, x[1] is null;
+
+explain verbose
+match (a:person {id: 1})-[x:knows*1..2]->(b:person)
+where x[1] is not null return x[1];
+
+explain verbose
+select * from (
+	match (a:person {id: 1})-[x:knows*1..2]->(b:person)
+	where x[1] is not null return x[1]
+	union all
+	match (a:person {id: 1})-[x:knows*1..2]->(b:person)
+	return x[2]
+) as foo;
+
 -- shortestpath(), allshortestpaths()
 
 CREATE OR REPLACE FUNCTION ids(vertex[]) RETURNS int[] AS $$
@@ -310,8 +405,9 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- 1->2->3->4->5
-match (a:person {id: 3})-[k:knows]->(b:person {id: 1}) delete k;
 match (a:person {id: 1})-[k:knows]->(b:person {id: 5}) delete k;
+match (a:person {id: 5})-[k:knows]->(b:person {id: 6}) delete k;
+match (a:person {id: 6}) delete a;
 match (a:person {id: 4}), (b:person {id: 5}) create (a)-[:knows]->(b);
 
 MATCH (p:person), (f:person) WHERE p.id::int = 3 AND f.id::int = 4
@@ -345,6 +441,131 @@ CREATE (p)-[:knows]->(:person {id: 6})-[:knows]->(f);
 
 MATCH (p:person), (f:person) WHERE p.id::int = 1 AND f.id::int = 5
 RETURN array_length(allshortestpaths((p)-[:knows*]-(f)), 1) AS cnt;
+
+create vlabel v;
+create elabel e;
+
+create (:v {id: 0});
+create (:v {id: 1});
+create (:v {id: 2});
+create (:v {id: 3});
+create (:v {id: 4});
+create (:v {id: 5});
+create (:v {id: 6});
+
+match (v1:v {id:0}), (v2:v {id:4})
+create (v1)-[:e {weight: 3}]->(v2);
+match (v1:v {id:0}), (v2:v {id:1})
+create (v1)-[:e {weight: 7}]->(v2);
+match (v1:v {id:0}), (v2:v {id:5})
+create (v1)-[:e {weight: 10}]->(v2);
+
+match (v1:v {id:4}), (v2:v {id:6})
+create (v1)-[:e {weight: 5}]->(v2);
+match (v1:v {id:4}), (v2:v {id:3})
+create (v1)-[:e {weight: 11}]->(v2);
+match (v1:v {id:4}), (v2:v {id:1})
+create (v1)-[:e {weight: 2}]->(v2);
+
+match (v1:v {id:1}), (v2:v {id:3})
+create (v1)-[:e {weight: 10}]->(v2);
+match (v1:v {id:1}), (v2:v {id:2})
+create (v1)-[:e {weight: 4}]->(v2);
+match (v1:v {id:1}), (v2:v {id:5})
+create (v1)-[:e {weight: 6}]->(v2);
+
+match (v1:v {id:5}), (v2:v {id:3})
+create (v1)-[:e {weight: 9}]->(v2);
+
+match (v1:v {id:6}), (v2:v {id:3})
+create (v1)-[:e {weight: 4}]->(v2);
+
+match (v1:v {id:2}), (v2:v {id:3})
+create (v1)-[:e {weight: 2}]->(v2);
+
+match (v1:v {id: 0}), (v2:v {id: 3}),
+	  path=dijkstra((v1)-[e:e]->(v2), e.weight::float8)
+return nodes(path);
+
+match (v1:v {id: 0}), (v2:v {id: 3}),
+	  path=dijkstra((v2)<-[e:e]-(v1), e.weight::float8)
+return nodes(path);
+
+match (v1:v {id: 0}), (v2:v {id: 3}),
+	  path=dijkstra((v1)-[e:e]-(v2), e.weight::float8)
+return nodes(path);
+
+match (v1:v {id: 0}), (v2:v {id: 3}),
+	  path=dijkstra((v2)-[e:e]-(v1), e.weight::float8)
+return nodes(path);
+
+match (v1:v {id: 0}), (v2:v {id: 3}),
+	  path=dijkstra((v1)-[e:e]->(v2), e.weight::float8 + 1)
+return nodes(path);
+
+match (v1:v {id: 0}), (v2:v {id: 3}),
+	  path=dijkstra((v1)-[e:e]->(v2), e.weight::float8, e.weight::float8 >=5)
+return nodes(path);
+
+match (v1:v {id: 0}), (v2:v {id: 3}),
+	  path=dijkstra((v1)-[e:e]->(v2), e.weight::float8, e.weight::float8)
+return nodes(path);
+
+match (v1:v {id: 0}), (v2:v {id: 3}),
+	  path=dijkstra((v1:v {id:0})-[e:e]->(v2), e.weight::float8)
+return nodes(path);
+
+match (v1:v {id: 0}), (v2:v {id: 3}),
+	  path=dijkstra((v1:v)-[e:e*1..]->(v2), e.weight::float8)
+return nodes(path);
+
+match (v1:v {id: 6}), (v2:v {id: 2}),
+	  path=dijkstra((v1:v)-[e:e]->(v2), e.weight::float8)
+return nodes(path);
+
+match (v1:v), (v2:v),
+	  path=dijkstra((v1:v)-[e:e]->(v2), e.weight::float8)
+where v1.id::int8 = 6 and v2.id::int8 = 2
+return nodes(path);
+
+match (v1:v {id: 0}), (v2:v {id: 3})
+return dijkstra((v1)-[e:e]->(v2), e.weight::float8);
+
+match (v1:v {id: 0}), (v2:v {id: 0})
+return dijkstra((v1)-[e:e]->(v2), e.weight::float8);
+
+match (v1:v {id: 0}), (v2:v {id: 3}),
+p = dijkstra((v1)-[:e]->(v2), 1)
+return nodes(p);
+
+match (v1:v {id: 0}), (v2:v {id: 3}),
+p = dijkstra((v1)-[:e]->(v2), 1, limit 10)
+return nodes(p);
+
+match (:v {id:4 })-[e:e]-(:v {id:6})
+set e.weight = '4';
+
+match (v1:v {id: 0}), (v2:v {id: 3}),
+	  (path,x)=dijkstra((v1)-[e:e]->(v2), e.weight::float8, limit 2)
+return nodes(path), x;
+
+match (v1:v {id: 0}), (v2:v {id: 3}),
+	  (path,x)=dijkstra((v2)<-[e:e]->(v1), e.weight::float8, limit 2)
+return nodes(path), x;
+
+match (v1:v {id: 0}), (v2:v {id: 3})
+return dijkstra((v1)-[e:e]->(v2), e.weight::float8, limit 2);
+
+match (v1:v {id: 0}), (v2:v {id: 3}),
+	  (path,x)=dijkstra((v1)-[e:e]->(v2), e.weight::float8, limit 0)
+return nodes(path), x;
+
+match (:v {id:4 })-[e:e]-(:v {id:6})
+set e.weight = '-1';
+
+match (v1:v {id: 0}), (v2:v {id: 3}),
+	  (path,x)=dijkstra((v1)-[e:e]->(v2), e.weight::float8, limit 10)
+return nodes(path), x;
 
 SET graph_path = agens;
 
@@ -520,6 +741,18 @@ RETURN properties(a) AS a, properties(b) AS b;
 MATCH (a)-[]->(b) RETURN properties(a) AS a, properties(b) AS b;
 MATCH (a) DETACH DELETE (a);
 
+CREATE ({val: 1})-[:rel]->({val: 2});
+MATCH (a)-[]->(b)
+	SET a.val = b.val::jsonb, b.val = a.val::jsonb;
+MATCH (a)-[]->(b) RETURN properties(a) AS a, properties(b) AS b;
+MATCH (a) DETACH DELETE (a);
+
+CREATE ({val: 1})-[:rel]->({val: 2});
+MATCH (a)-[]->(b)
+	SET a.val = b.val::jsonb SET b.val = a.val::jsonb;
+MATCH (a)-[]->(b) RETURN properties(a) AS a, properties(b) AS b;
+MATCH (a) DETACH DELETE (a);
+
 -- += operator
 
 CREATE ({age: 10});
@@ -681,6 +914,45 @@ MERGE (c:v1 {name:'bitnine'})
 	ON MATCH SET c.matched = 'true'
 	ON CREATE SET c.matched = 'false';
 MATCH (a) RETURN properties(a);
+
+MATCH (a) DETACH DELETE a;
+
+--------------
+-- Eager plan
+--------------
+-- CREATE - MERGE
+CREATE (:v1 {no:1}), (:v1 {no:2}), (:v1 {no:3});
+MATCH (a:v1)
+CREATE (b:v2 {no:a.no::int})
+MERGE (c:v2 {no:a.no::int + 2});
+
+MATCH (a:v2) RETURN a.no;
+MATCH (a:v2) DETACH DELETE a;
+
+-- MERGE - MERGE
+MATCH (a:v1)
+MERGE (b:v2 {no:a.no::int})
+MERGE (c:v2 {no:a.no::int + 2});
+
+MATCH (a:v2) RETURN a.no;
+
+-- SET - MERGE
+MATCH (a:v1) SET a.no = (a.no::int - 2)::text::jsonb
+MERGE (b:v1 {no:1});
+
+MATCh (a:v1) return a.no;
+
+-- DELETE - MERGE
+MATCH (a) DELETE a;
+CREATE (:v1 {no:1}), (:v1 {no:2}), (:v1 {no:3});
+
+MATCH (a:v1)
+	WHERE a.no::int < 3
+	DELETE a
+MERGE (b:v1 {no:2})
+	ON MATCH SET b.no = a.no::jsonb;
+
+MATCH (a:v1) return a.no;
 
 -- wrong case
 MERGE (a:v1) MERGE (b:v2 {name:a.notexistent});

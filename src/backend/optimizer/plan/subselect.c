@@ -2694,10 +2694,17 @@ finalize_plan(PlannerInfo *root, Plan *plan, Bitmapset *valid_params,
 		case T_Gather:
 		case T_SetOp:
 		case T_Group:
+		case T_Eager:
 			break;
 
 		case T_ModifyGraph:
 			/* currently, this node does not consider params */
+			break;
+
+		case T_Dijkstra:
+			finalize_primnode(((Dijkstra *) plan)->source, &context);
+			finalize_primnode(((Dijkstra *) plan)->target, &context);
+			finalize_primnode(((Dijkstra *) plan)->limit, &context);
 			break;
 
 		default:

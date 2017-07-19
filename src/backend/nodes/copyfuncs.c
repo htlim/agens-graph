@@ -99,6 +99,7 @@ _copyPlannedStmt(const PlannedStmt *from)
 	COPY_NODE_FIELD(relationOids);
 	COPY_NODE_FIELD(invalItems);
 	COPY_SCALAR_FIELD(nParamExec);
+	COPY_SCALAR_FIELD(nVlePaths);
 
 	return newnode;
 }
@@ -357,6 +358,7 @@ CopyScanFields(const Scan *from, Scan *newnode)
 	CopyPlanFields((const Plan *) from, (Plan *) newnode);
 
 	COPY_SCALAR_FIELD(scanrelid);
+	COPY_SCALAR_FIELD(edgerefid);
 }
 
 /*
@@ -1062,6 +1064,22 @@ _copyLimit(const Limit *from)
 	return newnode;
 }
 
+/*
+ * _copyEager
+ */
+static Eager *
+_copyEager(const Eager *from)
+{
+	Eager   *newnode = makeNode(Eager);
+
+	/*
+	 * copy node superclass fields
+	 */
+	CopyPlanFields((const Plan *) from, (Plan *) newnode);
+
+	return newnode;
+}
+
 static ModifyGraph *
 _copyModifyGraph(const ModifyGraph *from)
 {
@@ -1081,6 +1099,25 @@ _copyModifyGraph(const ModifyGraph *from)
 
 	return newnode;
 }
+
+static Dijkstra *
+_copyDijkstra(const Dijkstra *from)
+{
+	Dijkstra *newnode = makeNode(Dijkstra);
+
+	CopyPlanFields((const Plan *) from, (Plan *) newnode);
+
+	COPY_SCALAR_FIELD(weight);
+	COPY_SCALAR_FIELD(weight_out);
+	COPY_SCALAR_FIELD(end_id);
+	COPY_SCALAR_FIELD(edge_id);
+	COPY_NODE_FIELD(source);
+	COPY_NODE_FIELD(target);
+	COPY_NODE_FIELD(limit);
+
+	return newnode;
+}
+
 
 /*
  * _copyNestLoopParam
@@ -2021,6 +2058,36 @@ _copyOnConflictExpr(const OnConflictExpr *from)
 	return newnode;
 }
 
+static EdgeRefProp *
+_copyEdgeRefProp(const EdgeRefProp *from)
+{
+	EdgeRefProp *newnode = makeNode(EdgeRefProp);
+
+	COPY_NODE_FIELD(arg);
+
+	return newnode;
+}
+
+static EdgeRefRow *
+_copyEdgeRefRow(const EdgeRefRow *from)
+{
+	EdgeRefRow *newnode = makeNode(EdgeRefRow);
+
+	COPY_NODE_FIELD(arg);
+
+	return newnode;
+}
+
+static EdgeRefRows *
+_copyEdgeRefRows(const EdgeRefRows *from)
+{
+	EdgeRefRows *newnode = makeNode(EdgeRefRows);
+
+	COPY_NODE_FIELD(arg);
+
+	return newnode;
+}
+
 /* ****************************************************************
  *						relation.h copy functions
  *
@@ -2793,6 +2860,13 @@ _copyQuery(const Query *from)
 	COPY_NODE_FIELD(setOperations);
 	COPY_NODE_FIELD(constraintDeps);
 	COPY_NODE_FIELD(withCheckOptions);
+	COPY_SCALAR_FIELD(dijkstraWeight);
+	COPY_SCALAR_FIELD(dijkstraWeightOut);
+	COPY_NODE_FIELD(dijkstraEndId);
+	COPY_NODE_FIELD(dijkstraEdgeId);
+	COPY_NODE_FIELD(dijkstraSource);
+	COPY_NODE_FIELD(dijkstraTarget);
+	COPY_NODE_FIELD(dijkstraLimit);
 
 	COPY_SCALAR_FIELD(graph.writeOp);
 	COPY_SCALAR_FIELD(graph.last);
@@ -2890,6 +2964,7 @@ _copySetOperationStmt(const SetOperationStmt *from)
 	COPY_NODE_FIELD(colCollations);
 	COPY_NODE_FIELD(groupClauses);
 	COPY_SCALAR_FIELD(maxDepth);
+	COPY_SCALAR_FIELD(shortestpath);
 
 	return newnode;
 }
@@ -4825,6 +4900,9 @@ copyObject(const void *from)
 		case T_Limit:
 			retval = _copyLimit(from);
 			break;
+		case T_Eager:
+			retval = _copyEager(from);
+			break;
 		case T_ModifyGraph:
 			retval = _copyModifyGraph(from);
 			break;
@@ -4836,6 +4914,9 @@ copyObject(const void *from)
 			break;
 		case T_PlanInvalItem:
 			retval = _copyPlanInvalItem(from);
+			break;
+		case T_Dijkstra:
+			retval = _copyDijkstra(from);
 			break;
 
 			/*
@@ -4984,6 +5065,15 @@ copyObject(const void *from)
 			break;
 		case T_OnConflictExpr:
 			retval = _copyOnConflictExpr(from);
+			break;
+		case T_EdgeRefProp:
+			retval = _copyEdgeRefProp(from);
+			break;
+		case T_EdgeRefRow:
+			retval = _copyEdgeRefRow(from);
+			break;
+		case T_EdgeRefRows:
+			retval = _copyEdgeRefRows(from);
 			break;
 
 			/*

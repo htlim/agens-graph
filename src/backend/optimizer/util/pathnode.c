@@ -3135,6 +3135,63 @@ create_limit_path(PlannerInfo *root, RelOptInfo *rel,
 	return pathnode;
 }
 
+/*
+ * create_eager_path
+ *	  Creates a path corresponding to a Eager plan, returning the
+ *	  pathnode.
+ */
+EagerPath *
+create_eager_path(RelOptInfo *rel, Path *subpath)
+{
+	EagerPath *pathnode = makeNode(EagerPath);
+
+	pathnode->path.pathtype = T_Eager;
+	pathnode->path.parent = rel;
+	pathnode->path.pathtarget = rel->reltarget;
+	pathnode->path.param_info = subpath->param_info;
+	pathnode->path.parallel_aware = false;
+	pathnode->path.parallel_safe = rel->consider_parallel &&
+		subpath->parallel_safe;
+	pathnode->path.parallel_workers = subpath->parallel_workers;
+	pathnode->path.pathkeys = subpath->pathkeys;
+
+	/* For now, eager cost is ignored. */
+	pathnode->path.rows = subpath->rows;
+	pathnode->path.startup_cost = subpath->startup_cost;
+	pathnode->path.total_cost = subpath->total_cost;
+	pathnode->path.pathkeys = NIL;
+
+	pathnode->subpath = subpath;
+
+	return pathnode;
+}
+
+static Path *considerEager(RelOptInfo *rel, Path *path)
+{
+	if (IsA(path, ModifyGraphPath))
+	{
+		return (Path *) create_eager_path(rel, path);
+	}
+	else if (IsA(path, SubqueryScanPath))
+	{
+		SubqueryScanPath *pathnode = (SubqueryScanPath *) path;
+
+		if (IsA(pathnode->subpath, ModifyGraphPath))
+			return (Path *) create_eager_path(pathnode->path.parent, path);
+	}
+	/* For CypherMergeJoin */
+	else if (IsA(path, NestPath))
+	{
+		NestPath *pathnode = (NestPath *) path;
+
+		pathnode->outerjoinpath =
+					(Path *) considerEager(pathnode->path.parent,
+										   pathnode->outerjoinpath);
+	}
+
+	return path;
+}
+
 ModifyGraphPath *
 create_modifygraph_path(PlannerInfo *root, RelOptInfo *rel, bool canSetTag,
 						GraphWriteOp operation, bool last, bool detach,
@@ -3154,6 +3211,8 @@ create_modifygraph_path(PlannerInfo *root, RelOptInfo *rel, bool canSetTag,
 	pathnode->path.startup_cost = subpath->startup_cost;
 	pathnode->path.total_cost = subpath->total_cost;
 	pathnode->path.pathkeys = NIL;
+
+	subpath = considerEager(rel, subpath);
 
 	pathnode->canSetTag = canSetTag;
 	pathnode->operation = operation;
@@ -3245,4 +3304,47 @@ reparameterize_path(PlannerInfo *root, Path *path,
 			break;
 	}
 	return NULL;
+}
+
+DijkstraPath *
+create_dijkstra_path(PlannerInfo *root,
+					 RelOptInfo *rel,
+					 Path *subpath,
+					 PathTarget *path_target,
+					 int weight, bool weight_out,
+					 Node *end_id, Node *edge_id,
+					 Node *source, Node *target, Node *limit)
+{
+	DijkstraPath *pathnode = makeNode(DijkstraPath);
+
+	pathnode->path.pathtype = T_Dijkstra;
+	pathnode->path.parent = rel;
+	pathnode->path.pathtarget = path_target;
+	/* For now, assume we are above any joins, so no parameterization */
+	pathnode->path.param_info = NULL;
+	pathnode->path.parallel_aware = false;
+	pathnode->path.parallel_safe = rel->consider_parallel &&
+		subpath->parallel_safe;
+	pathnode->path.parallel_workers = subpath->parallel_workers;
+	pathnode->path.pathkeys = subpath->pathkeys;
+
+	pathnode->subpath = subpath;
+	pathnode->weight = weight;
+	pathnode->weight_out = weight_out;
+	pathnode->end_id = end_id;
+	pathnode->edge_id = edge_id;
+	pathnode->source = source;
+	pathnode->target = target;
+	pathnode->limit = limit;
+
+	cost_dijkstra(&pathnode->path, subpath->startup_cost,
+				  subpath->total_cost, subpath->rows,
+				  subpath->pathtarget->width);
+
+	/* add tlist eval cost for each output row */
+	pathnode->path.startup_cost += path_target->cost.startup;
+	pathnode->path.total_cost += path_target->cost.startup +
+		path_target->cost.per_tuple * pathnode->path.rows;
+
+	return pathnode;
 }

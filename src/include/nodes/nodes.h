@@ -81,7 +81,9 @@ typedef enum NodeTag
 	T_SetOp,
 	T_LockRows,
 	T_Limit,
+	T_Eager,
 	T_ModifyGraph,
+	T_Dijkstra,
 	/* these aren't subclasses of Plan: */
 	T_NestLoopParam,
 	T_PlanRowMark,
@@ -123,6 +125,7 @@ typedef enum NodeTag
 	T_MaterialState,
 	T_SortState,
 	T_GroupState,
+	T_EagerState,
 	T_AggState,
 	T_WindowAggState,
 	T_UniqueState,
@@ -132,6 +135,7 @@ typedef enum NodeTag
 	T_LockRowsState,
 	T_LimitState,
 	T_ModifyGraphState,
+	T_DijkstraState,
 
 	/*
 	 * TAGS FOR PRIMITIVE NODES (primnodes.h)
@@ -185,6 +189,9 @@ typedef enum NodeTag
 	T_FromExpr,
 	T_OnConflictExpr,
 	T_IntoClause,
+	T_EdgeRefProp,
+	T_EdgeRefRow,
+	T_EdgeRefRows,
 
 	/*
 	 * TAGS FOR EXPRESSION STATE NODES (execnodes.h)
@@ -220,6 +227,9 @@ typedef enum NodeTag
 	T_NullTestState,
 	T_CoerceToDomainState,
 	T_DomainConstraintState,
+	T_EdgeRefPropState,
+	T_EdgeRefRowState,
+	T_EdgeRefRowsState,
 
 	/*
 	 * TAGS FOR PLANNER NODES (relation.h)
@@ -261,7 +271,9 @@ typedef enum NodeTag
 	T_LockRowsPath,
 	T_ModifyTablePath,
 	T_LimitPath,
+	T_EagerPath,
 	T_ModifyGraphPath,
+	T_DijkstraPath,
 	/* these aren't subclasses of Path: */
 	T_EquivalenceClass,
 	T_EquivalenceMember,

@@ -172,7 +172,7 @@ struct ParseState
 	 * Additional information for Cypher queries
 	 */
 	bool		p_is_match_quals;
-	bool		p_is_sp_processed;
+	bool		p_is_fp_processed;
 	List	   *p_node_info_list;		/* final shape of named nodes */
 	Node	   *p_vle_initial_vid;		/* initial vid for VLE */
 	RangeTblEntry *p_vle_initial_rte;	/* RTE of initial vid for VLE */
@@ -182,6 +182,7 @@ struct ParseState
 	bool		p_is_optional_match;
 	List	   *p_target_labels;		/* relation Oid's of target labels */
 	Node	   *p_last_colref_elem;		/* for property access */
+	bool		p_convert_edgeref;
 };
 
 /*

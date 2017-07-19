@@ -11,7 +11,7 @@ Building from the Source Code
 -------------------
 1. Clone AgensGraph onto your local machine
     ```sh
-    $ git clone git@github.com:bitnine-oss/agensgraph.git
+    $ git clone https://github.com/bitnine-oss/agensgraph.git
     ```
 
 2. Install the necessary libraries and dependencies:
@@ -38,10 +38,9 @@ Building from the Source Code
 
 3. Configure the source tree in /path/to/agensgraph:
     ```sh
-    $ ./configure
+    $ ./configure --prefix=$(pwd)
     ```
-    > If you want to install to a specific folder, you can use `--prefix=/path/to/install` option.
-
+    >By default, `make install` will install all the files in `/usr/local/pgsql/bin`, `/usr/local/pgsql/lib` etc.  You want to specify an installation prefix to the current library.
     > If `configure` doesn't find any header with an error message, you can use `--with-includes=/path/to/headers` option.
 
 4. Build & install AgensGraph:

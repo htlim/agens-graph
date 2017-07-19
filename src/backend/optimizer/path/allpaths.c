@@ -1692,7 +1692,7 @@ set_subquery_pathlist(PlannerInfo *root, RelOptInfo *rel,
 	 * XXX Are there any cases where we want to make a policy decision not to
 	 * push down a pushable qual, because it'd result in a worse plan?
 	 */
-	if (rel->baserestrictinfo != NIL &&
+	if (rel->baserestrictinfo != NIL && !rte->isVLE &&
 		subquery_is_pushdown_safe(subquery, subquery, &safetyInfo))
 	{
 		/* OK to consider pushing down individual quals */
@@ -2794,6 +2794,9 @@ remove_unused_subquery_outputs(Query *subquery, RelOptInfo *rel)
 		 subquery->graph.writeOp == GWROP_MERGE))
 		return;
 
+	if (subquery->dijkstraSource)
+		return;
+
 	/*
 	 * Collect a bitmap of all the output column numbers used by the upper
 	 * query.
@@ -3043,6 +3046,10 @@ print_path(PlannerInfo *root, Path *path, int indent)
 		case T_LimitPath:
 			ptype = "Limit";
 			subpath = ((LimitPath *) path)->subpath;
+			break;
+		case T_EagerPath:
+			ptype = "Eager";
+			subpath = ((EagerPath *) path)->subpath;
 			break;
 		case T_NestPath:
 			ptype = "NestLoop";

@@ -75,6 +75,7 @@ typedef enum UpperRelationKind
 	UPPERREL_WINDOW,			/* result of window functions, if any */
 	UPPERREL_DISTINCT,			/* result of "SELECT DISTINCT", if any */
 	UPPERREL_ORDERED,			/* result of ORDER BY, if any */
+	UPPERREL_DIJKSTRA,			/* result of dijkstra */
 	UPPERREL_FINAL				/* result of any remaining top-level actions */
 	/* NB: UPPERREL_FINAL must be last enum entry; it's used to size arrays */
 } UpperRelationKind;
@@ -126,6 +127,8 @@ typedef struct PlannerGlobal
 	bool		parallelModeOK; /* parallel mode potentially OK? */
 
 	bool		parallelModeNeeded;		/* parallel mode actually required? */
+
+	List	   *vlePathRelationOids;
 } PlannerGlobal;
 
 /* macro for fetching the Plan associated with a SubPlan node */
@@ -1474,6 +1477,15 @@ typedef struct LimitPath
 } LimitPath;
 
 /*
+ * EagerPath represents use of a Eager plan node.
+ */
+typedef struct EagerPath
+{
+	Path		path;
+	Path	   *subpath;
+} EagerPath;
+
+/*
  * ModifyGraphPath
  */
 typedef struct ModifyGraphPath
@@ -1490,6 +1502,18 @@ typedef struct ModifyGraphPath
 	List	   *sets;			/* list of GraphSetProp's for SET/REMOVE */
 } ModifyGraphPath;
 
+typedef struct DijkstraPath
+{
+	Path 		path;
+	Path	   *subpath;
+	int	   		weight;
+	bool		weight_out;
+	Node	   *end_id;
+	Node	   *edge_id;
+	Node	   *source;
+	Node	   *target;
+	Node	   *limit;
+} DijkstraPath;
 
 /*
  * Restriction clause info.

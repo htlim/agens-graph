@@ -275,6 +275,7 @@ _outPlannedStmt(StringInfo str, const PlannedStmt *node)
 	WRITE_NODE_FIELD(relationOids);
 	WRITE_NODE_FIELD(invalItems);
 	WRITE_INT_FIELD(nParamExec);
+	WRITE_BOOL_FIELD(nVlePaths);
 }
 
 /*
@@ -307,6 +308,7 @@ _outScanInfo(StringInfo str, const Scan *node)
 	_outPlanInfo(str, (const Plan *) node);
 
 	WRITE_UINT_FIELD(scanrelid);
+	WRITE_INT_FIELD(edgerefid);
 }
 
 /*
@@ -912,6 +914,14 @@ _outLimit(StringInfo str, const Limit *node)
 }
 
 static void
+_outEager(StringInfo str, const Eager *node)
+{
+	WRITE_NODE_TYPE("EAGER");
+
+	_outPlanInfo(str, (const Plan *) node);
+}
+
+static void
 _outModifyGraph(StringInfo str, const ModifyGraph *node)
 {
 	WRITE_NODE_TYPE("MODIFYGRAPH");
@@ -927,6 +937,22 @@ _outModifyGraph(StringInfo str, const ModifyGraph *node)
 	WRITE_NODE_FIELD(targets);
 	WRITE_NODE_FIELD(exprs);
 	WRITE_NODE_FIELD(sets);
+}
+
+static void
+_outDijkstra(StringInfo str, const Dijkstra *node)
+{
+	WRITE_NODE_TYPE("DIJKSTRA");
+
+	_outPlanInfo(str, (const Plan *) node);
+
+	WRITE_INT_FIELD(weight);
+	WRITE_BOOL_FIELD(weight_out);
+	WRITE_INT_FIELD(end_id);
+	WRITE_INT_FIELD(edge_id);
+	WRITE_NODE_FIELD(source);
+	WRITE_NODE_FIELD(target);
+	WRITE_NODE_FIELD(limit);
 }
 
 static void
@@ -1614,6 +1640,31 @@ _outOnConflictExpr(StringInfo str, const OnConflictExpr *node)
 	WRITE_NODE_FIELD(exclRelTlist);
 }
 
+static void
+_outEdgeRefProp(StringInfo str, const EdgeRefProp *node)
+{
+	WRITE_NODE_TYPE("EDGEREFPROP");
+
+	WRITE_NODE_FIELD(arg);
+}
+
+static void
+_outEdgeRefRow(StringInfo str, const EdgeRefRow *node)
+{
+	WRITE_NODE_TYPE("EDGEREFROW");
+
+	WRITE_NODE_FIELD(arg);
+}
+
+static void
+_outEdgeRefRows(StringInfo str, const EdgeRefRows *node)
+{
+	WRITE_NODE_TYPE("EDGEREFROWS");
+
+	WRITE_NODE_FIELD(arg);
+}
+
+
 /*****************************************************************************
  *
  *	Stuff from relation.h.
@@ -2004,6 +2055,23 @@ _outLimitPath(StringInfo str, const LimitPath *node)
 	WRITE_NODE_FIELD(subpath);
 	WRITE_NODE_FIELD(limitOffset);
 	WRITE_NODE_FIELD(limitCount);
+}
+
+static void
+_outDijkstraPath(StringInfo str, const DijkstraPath *node)
+{
+	WRITE_NODE_TYPE("DIJKSTRA");
+
+	_outPathInfo(str, (const Path *) node);
+
+	WRITE_NODE_FIELD(subpath);
+	WRITE_BOOL_FIELD(weight_out);
+	WRITE_INT_FIELD(weight);
+	WRITE_NODE_FIELD(end_id);
+	WRITE_NODE_FIELD(edge_id);
+	WRITE_NODE_FIELD(source);
+	WRITE_NODE_FIELD(target);
+	WRITE_NODE_FIELD(limit);
 }
 
 static void
@@ -2737,6 +2805,13 @@ _outQuery(StringInfo str, const Query *node)
 	WRITE_NODE_FIELD(rowMarks);
 	WRITE_NODE_FIELD(setOperations);
 	WRITE_NODE_FIELD(constraintDeps);
+	WRITE_INT_FIELD(dijkstraWeight);
+	WRITE_BOOL_FIELD(dijkstraWeightOut);
+	WRITE_NODE_FIELD(dijkstraEndId);
+	WRITE_NODE_FIELD(dijkstraEdgeId);
+	WRITE_NODE_FIELD(dijkstraSource);
+	WRITE_NODE_FIELD(dijkstraTarget);
+	WRITE_NODE_FIELD(dijkstraLimit);
 
 	WRITE_ENUM_FIELD(graph.writeOp, GraphWriteOp);
 	WRITE_BOOL_FIELD(graph.last);
@@ -2851,6 +2926,7 @@ _outSetOperationStmt(StringInfo str, const SetOperationStmt *node)
 	WRITE_NODE_FIELD(colCollations);
 	WRITE_NODE_FIELD(groupClauses);
 	WRITE_INT_FIELD(maxDepth);
+	WRITE_BOOL_FIELD(shortestpath);
 }
 
 static void
@@ -3741,8 +3817,14 @@ outNode(StringInfo str, const void *obj)
 			case T_Limit:
 				_outLimit(str, obj);
 				break;
+			case T_Eager:
+				_outEager(str, obj);
+				break;
 			case T_ModifyGraph:
 				_outModifyGraph(str, obj);
+				break;
+			case T_Dijkstra:
+				_outDijkstra(str, obj);
 				break;
 			case T_NestLoopParam:
 				_outNestLoopParam(str, obj);
@@ -3897,6 +3979,15 @@ outNode(StringInfo str, const void *obj)
 			case T_OnConflictExpr:
 				_outOnConflictExpr(str, obj);
 				break;
+			case T_EdgeRefProp:
+				_outEdgeRefProp(str, obj);
+				break;
+			case T_EdgeRefRow:
+				_outEdgeRefRow(str, obj);
+				break;
+			case T_EdgeRefRows:
+				_outEdgeRefRows(str, obj);
+				break;
 			case T_Path:
 				_outPath(str, obj);
 				break;
@@ -3980,6 +4071,9 @@ outNode(StringInfo str, const void *obj)
 				break;
 			case T_LimitPath:
 				_outLimitPath(str, obj);
+				break;
+			case T_DijkstraPath:
+				_outDijkstraPath(str, obj);
 				break;
 			case T_NestPath:
 				_outNestPath(str, obj);

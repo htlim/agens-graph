@@ -1183,6 +1183,7 @@ transformSelectStmt(ParseState *pstate, SelectStmt *stmt)
 	/* transform targetlist */
 	qry->targetList = transformTargetList(pstate, stmt->targetList,
 										  EXPR_KIND_SELECT_TARGET);
+	wrapEdgeRefTargetList(pstate, qry->targetList);
 
 	/* mark column origins */
 	markTargetListOrigins(pstate, qry->targetList);
@@ -1250,6 +1251,9 @@ transformSelectStmt(ParseState *pstate, SelectStmt *stmt)
 	qry->windowClause = transformWindowDefinitions(pstate,
 												   pstate->p_windowdefs,
 												   &qry->targetList);
+
+	if (pstate->parentParseState != NULL)
+		stripEdgeRefTargetList(qry->targetList);
 
 	qry->rtable = pstate->p_rtable;
 	qry->jointree = makeFromExpr(pstate->p_joinlist, qual);
@@ -1653,6 +1657,8 @@ transformSetOperationStmt(ParseState *pstate, SelectStmt *stmt)
 		left_tlist = lnext(left_tlist);
 	}
 
+	wrapEdgeRefTargetList(pstate, qry->targetList);
+
 	/*
 	 * As a first step towards supporting sort clauses that are expressions
 	 * using the output columns, generate a namespace entry that makes the
@@ -1692,6 +1698,9 @@ transformSetOperationStmt(ParseState *pstate, SelectStmt *stmt)
 										  EXPR_KIND_ORDER_BY,
 										  false /* no unknowns expected */ ,
 										  false /* allow SQL92 rules */ );
+
+	if (pstate->parentParseState != NULL)
+		stripEdgeRefTargetList(qry->targetList);
 
 	/* restore namespace, remove jrte from rtable */
 	pstate->p_namespace = sv_namespace;
@@ -1902,6 +1911,7 @@ transformSetOperationTree(ParseState *pstate, SelectStmt *stmt,
 		{
 			determineRecursiveColTypes(pstate, op->larg, ltargetlist);
 			op->maxDepth = pstate->p_parent_cte->maxdepth;
+			op->shortestpath = pstate->p_parent_cte->ctestop;
 		}
 
 		/*
@@ -2222,6 +2232,7 @@ transformUpdateTargetList(ParseState *pstate, List *origTlist)
 
 	tlist = transformTargetList(pstate, origTlist,
 								EXPR_KIND_UPDATE_SOURCE);
+	wrapEdgeRefTargetList(pstate, tlist);
 
 	/* Prepare to assign non-conflicting resnos to resjunk attributes */
 	if (pstate->p_next_resno <= pstate->p_target_relation->rd_rel->relnatts)
@@ -2304,6 +2315,7 @@ transformReturningList(ParseState *pstate, List *returningList)
 
 	/* transform RETURNING identically to a SELECT targetlist */
 	rlist = transformTargetList(pstate, returningList, EXPR_KIND_RETURNING);
+	wrapEdgeRefTargetList(pstate, rlist);
 
 	/*
 	 * Complain if the nonempty tlist expanded to nothing (which is possible
@@ -2906,10 +2918,6 @@ transformCypherStmt(ParseState *pstate, CypherStmt *stmt)
 				if (update_type == T_Invalid ||
 					update_type == T_CypherMergeClause)
 					update_type = T_CypherCreateClause;
-				else if (update_type != T_CypherCreateClause)
-					ereport(ERROR,
-							(errcode(ERRCODE_SYNTAX_ERROR),
-							 errmsg("There must be one type of consecutive update clauses")));
 				if (read)
 					ereport(ERROR,
 							(errcode(ERRCODE_SYNTAX_ERROR),
@@ -2941,12 +2949,6 @@ transformCypherStmt(ParseState *pstate, CypherStmt *stmt)
 						ereport(ERROR,
 								(errcode(ERRCODE_SYNTAX_ERROR),
 								 errmsg("ON CREATE/MATCH SET between MERGE clauses is not allowed")));
-				}
-				else
-				{
-					ereport(ERROR,
-							(errcode(ERRCODE_SYNTAX_ERROR),
-							 errmsg("There must be one type of consecutive update clauses")));
 				}
 				if (read)
 					ereport(ERROR,

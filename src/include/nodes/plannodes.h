@@ -73,6 +73,8 @@ typedef struct PlannedStmt
 	List	   *invalItems;		/* other dependencies, as PlanInvalItems */
 
 	int			nParamExec;		/* number of PARAM_EXEC Params used */
+
+	int			nVlePaths;		/* number of path columns */
 } PlannedStmt;
 
 /* macro for fetching the Plan associated with a SubPlan node */
@@ -285,6 +287,7 @@ typedef struct Scan
 {
 	Plan		plan;
 	Index		scanrelid;		/* relid is index into the range table */
+	int			edgerefid;
 } Scan;
 
 /* ----------------
@@ -688,6 +691,15 @@ typedef struct Sort
 	bool	   *nullsFirst;		/* NULLS FIRST/LAST directions */
 } Sort;
 
+/* ----------------
+ *		eager node
+ * ----------------
+ */
+typedef struct Eager
+{
+	Plan		plan;
+} Eager;
+
 /* ---------------
  *	 group node -
  *		Used for queries with GROUP BY (but no aggregates) specified.
@@ -971,5 +983,17 @@ typedef struct ModifyGraph
 	List	   *exprs;			/* expression list for DELETE */
 	List	   *sets;			/* list of GraphSetProp's for SET/REMOVE */
 } ModifyGraph;
+
+typedef struct Dijkstra
+{
+	Plan		plan;
+	AttrNumber  weight;
+	bool		weight_out;
+	AttrNumber  end_id;
+	AttrNumber  edge_id;
+	Node	   *source;
+	Node	   *target;
+	Node	   *limit;
+} Dijkstra;
 
 #endif   /* PLANNODES_H */

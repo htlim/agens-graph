@@ -23,6 +23,8 @@
 #include "executor/nodeBitmapOr.h"
 #include "executor/nodeCtescan.h"
 #include "executor/nodeCustom.h"
+#include "executor/nodeEager.h"
+#include "executor/nodeDijkstra.h"
 #include "executor/nodeForeignscan.h"
 #include "executor/nodeFunctionscan.h"
 #include "executor/nodeGather.h"
@@ -271,6 +273,14 @@ ExecReScan(PlanState *node)
 			ExecReScanLimit((LimitState *) node);
 			break;
 
+		case T_EagerState:
+			ExecReScanEager((EagerState *) node);
+			break;
+
+		case T_DijkstraState:
+			ExecReScanDijkstra((DijkstraState *) node);
+			break;
+
 		default:
 			elog(ERROR, "unrecognized node type: %d", (int) nodeTag(node));
 			break;
@@ -479,6 +489,9 @@ ExecSupportsMarkRestore(Path *pathnode)
 				return false;	/* childless Result */
 			}
 
+		case T_Eager:
+			return false;
+
 		default:
 			break;
 	}
@@ -575,6 +588,9 @@ ExecSupportsBackwardScan(Plan *node)
 		case T_Limit:
 			/* these don't evaluate tlist */
 			return ExecSupportsBackwardScan(outerPlan(node));
+
+		case T_Eager:
+			return false;
 
 		default:
 			return false;

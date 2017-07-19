@@ -776,6 +776,30 @@ _equalOnConflictExpr(const OnConflictExpr *a, const OnConflictExpr *b)
 	return true;
 }
 
+static bool
+_equalEdgeRefProp(const EdgeRefProp *a, const EdgeRefProp *b)
+{
+	COMPARE_NODE_FIELD(arg);
+
+	return true;
+}
+
+static bool
+_equalEdgeRefRow(const EdgeRefRow *a, const EdgeRefRow *b)
+{
+	COMPARE_NODE_FIELD(arg);
+
+	return true;
+}
+
+static bool
+_equalEdgeRefRows(const EdgeRefRows *a, const EdgeRefRows *b)
+{
+	COMPARE_NODE_FIELD(arg);
+
+	return true;
+}
+
 /*
  * Stuff from relation.h
  */
@@ -940,6 +964,13 @@ _equalQuery(const Query *a, const Query *b)
 	COMPARE_NODE_FIELD(setOperations);
 	COMPARE_NODE_FIELD(constraintDeps);
 	COMPARE_NODE_FIELD(withCheckOptions);
+	COMPARE_SCALAR_FIELD(dijkstraWeight);
+	COMPARE_SCALAR_FIELD(dijkstraWeightOut);
+	COMPARE_NODE_FIELD(dijkstraEndId);
+	COMPARE_NODE_FIELD(dijkstraEdgeId);
+	COMPARE_NODE_FIELD(dijkstraSource);
+	COMPARE_NODE_FIELD(dijkstraTarget);
+	COMPARE_NODE_FIELD(dijkstraLimit);
 
 	COMPARE_SCALAR_FIELD(graph.writeOp);
 	COMPARE_SCALAR_FIELD(graph.last);
@@ -1027,6 +1058,7 @@ _equalSetOperationStmt(const SetOperationStmt *a, const SetOperationStmt *b)
 	COMPARE_NODE_FIELD(colCollations);
 	COMPARE_NODE_FIELD(groupClauses);
 	COMPARE_SCALAR_FIELD(maxDepth);
+	COMPARE_SCALAR_FIELD(shortestpath);
 
 	return true;
 }
@@ -3198,6 +3230,15 @@ equal(const void *a, const void *b)
 			break;
 		case T_JoinExpr:
 			retval = _equalJoinExpr(a, b);
+			break;
+		case T_EdgeRefProp:
+			retval = _equalEdgeRefProp(a, b);
+			break;
+		case T_EdgeRefRow:
+			retval = _equalEdgeRefRow(a, b);
+			break;
+		case T_EdgeRefRows:
+			retval = _equalEdgeRefRows(a, b);
 			break;
 
 			/*

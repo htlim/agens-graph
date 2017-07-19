@@ -262,6 +262,13 @@ _readQuery(void)
 	READ_NODE_FIELD(rowMarks);
 	READ_NODE_FIELD(setOperations);
 	READ_NODE_FIELD(constraintDeps);
+	READ_INT_FIELD(dijkstraWeight);
+	READ_BOOL_FIELD(dijkstraWeightOut);
+	READ_NODE_FIELD(dijkstraEndId);
+	READ_NODE_FIELD(dijkstraEdgeId);
+	READ_NODE_FIELD(dijkstraSource);
+	READ_NODE_FIELD(dijkstraTarget);
+	READ_NODE_FIELD(dijkstraLimit);
 
 	READ_ENUM_FIELD(graph.writeOp, GraphWriteOp);
 	READ_BOOL_FIELD(graph.last);
@@ -430,6 +437,7 @@ _readSetOperationStmt(void)
 	READ_NODE_FIELD(colCollations);
 	READ_NODE_FIELD(groupClauses);
 	READ_INT_FIELD(maxDepth);
+	READ_BOOL_FIELD(shortestpath);
 
 	READ_DONE();
 }
@@ -1417,6 +1425,7 @@ _readPlannedStmt(void)
 	READ_NODE_FIELD(relationOids);
 	READ_NODE_FIELD(invalItems);
 	READ_INT_FIELD(nParamExec);
+	READ_BOOL_FIELD(nVlePaths);
 
 	READ_DONE();
 }
@@ -1602,6 +1611,7 @@ ReadCommonScan(Scan *local_node)
 	ReadCommonPlan(&local_node->plan);
 
 	READ_UINT_FIELD(scanrelid);
+	READ_INT_FIELD(edgerefid);
 }
 
 /*
@@ -2164,6 +2174,37 @@ _readLimit(void)
 	READ_DONE();
 }
 
+static Dijkstra *
+_readDijkstra(void)
+{
+	READ_LOCALS(Dijkstra);
+
+	ReadCommonPlan(&local_node->plan);
+
+	READ_INT_FIELD(weight);
+	READ_BOOL_FIELD(weight_out);
+	READ_INT_FIELD(end_id);
+	READ_INT_FIELD(edge_id);
+	READ_NODE_FIELD(source);
+	READ_NODE_FIELD(target);
+	READ_NODE_FIELD(limit);
+
+	READ_DONE();
+}
+
+/*
+ * _readEager
+ */
+static Eager *
+_readEager(void)
+{
+	READ_LOCALS_NO_FIELDS(Eager);
+
+	ReadCommonPlan(&local_node->plan);
+
+	READ_DONE();
+}
+
 /*
  * _readNestLoopParam
  */
@@ -2330,6 +2371,36 @@ _readGraphSetProp(void)
 	READ_STRING_FIELD(variable);
 	READ_NODE_FIELD(elem);
 	READ_NODE_FIELD(expr);
+
+	READ_DONE();
+}
+
+static EdgeRefProp *
+_readEdgeRefProp(void)
+{
+	READ_LOCALS(EdgeRefProp);
+
+	READ_NODE_FIELD(arg);
+
+	READ_DONE();
+}
+
+static EdgeRefRow *
+_readEdgeRefRow(void)
+{
+	READ_LOCALS(EdgeRefRow);
+
+	READ_NODE_FIELD(arg);
+
+	READ_DONE();
+}
+
+static EdgeRefRows *
+_readEdgeRefRows(void)
+{
+	READ_LOCALS(EdgeRefRows);
+
+	READ_NODE_FIELD(arg);
 
 	READ_DONE();
 }
@@ -2554,6 +2625,10 @@ parseNodeString(void)
 		return_value = _readLockRows();
 	else if (MATCH("LIMIT", 5))
 		return_value = _readLimit();
+	else if (MATCH("EAGER", 5))
+		return_value = _readEager();
+	else if (MATCH("DIJKSTRA", 8))
+		return_value = _readDijkstra();
 	else if (MATCH("NESTLOOPPARAM", 13))
 		return_value = _readNestLoopParam();
 	else if (MATCH("PLANROWMARK", 11))
@@ -2574,6 +2649,12 @@ parseNodeString(void)
 		return_value = _readGraphEdge();
 	else if (MATCH("GRAPHSETPROP", 12))
 		return_value = _readGraphSetProp();
+	else if (MATCH("EDGEREFPROP", 11))
+		return_value = _readEdgeRefProp();
+	else if (MATCH("EDGEREFROW", 10))
+		return_value = _readEdgeRefRow();
+	else if (MATCH("EDGEREFROWS", 11))
+		return_value = _readEdgeRefRows();
 	else
 	{
 		elog(ERROR, "badly formatted node string \"%.32s\"...", token);
