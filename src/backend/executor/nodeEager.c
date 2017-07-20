@@ -9,11 +9,18 @@
 
 #include "postgres.h"
 
+#include "catalog/pg_type.h"
 #include "executor/execdebug.h"
 #include "executor/nodeEager.h"
 #include "miscadmin.h"
 #include "utils/tuplestore.h"
 
+/* hash entry */
+typedef struct ModifiedObjEntry
+{
+	Graphid	key;
+	Datum	properties;
+} ModifiedObjEntry;
 
 /* ----------------------------------------------------------------
  *		ExecEager
@@ -74,6 +81,9 @@ ExecEager(EagerState *node)
 			if (TupIsNull(slot))
 				break;
 
+			// Get SET/DELETEd
+			// TODO : add modified property to properties table
+
 			tuplestore_puttupleslot(tuplestorestate, slot);
 		}
 
@@ -99,7 +109,9 @@ ExecEager(EagerState *node)
 	/* mark slot as containing a virtual tuple */
 	if (!TupIsNull(slot))
 	{
+		int i;
 		int	natts = slot->tts_tupleDescriptor->natts;
+		ModifiedObjEntry *entry;
 
 		slot_getallattrs(slot);
 
@@ -107,6 +119,44 @@ ExecEager(EagerState *node)
 		memcpy(result->tts_isnull, slot->tts_isnull, natts * sizeof(bool));
 
 		ExecStoreVirtualTuple(result);
+
+		// TODO : Check graph elements modified.
+		for (i=0; i<natts; i++)
+		{
+			Graphid gid;
+			Oid		type;
+
+			if (result->tts_isnull[i] == 0)
+				continue;
+
+			// TODO : get graph id
+			type = slot->tts_tupleDescriptor->attrs[i]->atttypid;
+
+			if (type == VERTEXOID)
+				gid = getVertexIdDatum(slot->tts_values[i]);
+			else if (type == EDGEOID)
+				gid = getEdgeIdDatum(slot->tts_values[i]);
+			else
+				continue;
+
+			entry = hash_search(node->modifiedObject, (void *) &gid, HASH_FIND, NULL);
+			if (entry == NULL)
+				continue;
+			else
+			{
+//				Datum properties;
+//
+//				if (type == VERTEXOID)
+//					properties = getVertexPropDatum(slot->tts_values[i]);
+//				else if (type == EDGEOID)
+//					properties = getEdgePropDatum(slot->tts_values[i]);
+//				else
+//					ASSERT(0);
+
+				// TODO : set modified properties
+			}
+		}
+
 	}
 
 	return result;
@@ -123,6 +173,7 @@ EagerState *
 ExecInitEager(Eager *node, EState *estate, int eflags)
 {
 	EagerState  *Eagerstate;
+	HASHCTL ctl;
 
 	/*
 	 * create state structure
@@ -158,6 +209,16 @@ ExecInitEager(Eager *node, EState *estate, int eflags)
 	ExecAssignScanTypeFromOuterPlan(&Eagerstate->ss);
 	Eagerstate->ss.ps.ps_ProjInfo = NULL;
 
+	// TODO : init modifyObject htab
+	memset(&ctl, 0, sizeof(ctl));
+	ctl.keysize = sizeof(Graphid);
+	ctl.entrysize = sizeof(ModifiedObjEntry);
+	ctl.hcxt = CurrentMemoryContext;
+
+	Eagerstate->modifiedObject =
+					hash_create("ModifyGraph SPIPlan cache", 128, &ctl,
+								HASH_ELEM | HASH_BLOBS | HASH_CONTEXT);
+
 	return Eagerstate;
 }
 
@@ -168,6 +229,17 @@ ExecInitEager(Eager *node, EState *estate, int eflags)
 void
 ExecEndEager(EagerState *node)
 {
+	HASH_SEQ_STATUS seqStatus;
+	ModifiedObjEntry *entry;
+
+	hash_seq_init(&seqStatus, node->modifiedObject);
+	while ((entry = hash_seq_search(&seqStatus)) != NULL)
+		SPI_freeplan(entry->properties);
+
+	hash_destroy(node->modifiedObject);
+
+	node->modifiedObject = NULL;
+
 	/*
 	 * clean out the tuple table
 	 */

@@ -1033,6 +1033,7 @@ ExecSetGraph(ModifyGraphState *mgstate, GSPKind kind, TupleTableSlot *slot)
 		Datum		expr_datum;
 		Datum		newelem;
 		bool		isNull;
+		int			attrno;
 		ExprDoneCond isDone;
 		MemoryContext oldmctx;
 
@@ -1091,7 +1092,11 @@ ExecSetGraph(ModifyGraphState *mgstate, GSPKind kind, TupleTableSlot *slot)
 
 		MemoryContextSwitchTo(oldmctx);
 
-		setSlotValueByName(result, newelem, gsp->variable);
+		attrno = findAttrInSlotByName(result, gsp->variable);
+
+		// TODO : Return Seted List
+
+		setSlotValueByAttnum(result, newelem, attrno);
 	}
 
 	if (SPI_finish() != SPI_OK_FINISH)

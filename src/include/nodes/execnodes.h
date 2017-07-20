@@ -1930,6 +1930,7 @@ typedef struct EagerState
 {
 	ScanState	ss;				/* its first field is NodeTag */
 	bool		child_done;		/* reached end of child plan? */
+	HTAB	   *modifiedObject;	/* SET/DELETEd graph elements table */
 	Tuplestorestate *tuplestorestate;
 } EagerState;
 

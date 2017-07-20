@@ -3186,6 +3186,7 @@ static Path *considerEager(RelOptInfo *rel, Path *path)
 
 		pathnode->outerjoinpath =
 					(Path *) considerEager(pathnode->path.parent,
+										   operation,
 										   pathnode->outerjoinpath);
 	}
 
@@ -3212,17 +3213,27 @@ create_modifygraph_path(PlannerInfo *root, RelOptInfo *rel, bool canSetTag,
 	pathnode->path.total_cost = subpath->total_cost;
 	pathnode->path.pathkeys = NIL;
 
-	subpath = considerEager(rel, subpath);
-
 	pathnode->canSetTag = canSetTag;
 	pathnode->operation = operation;
 	pathnode->last = last;
 	pathnode->detach = detach;
-	pathnode->subpath = subpath;
 	pathnode->pattern = pattern;
 	pathnode->targets = targets;
 	pathnode->exprs = exprs;
 	pathnode->sets = sets;
+
+	if (operation == GWROP_SET || operation == GWROP_DELETE)
+	{
+		pathnode->subpath = subpath;
+
+		pathnode = create_eager_path(rel, pathnode);
+	}
+	else
+	{
+		subpath = considerEager(rel, subpath);
+
+		pathnode->subpath = subpath;
+	}
 
 	return pathnode;
 }
