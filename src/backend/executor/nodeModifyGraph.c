@@ -1094,8 +1094,6 @@ ExecSetGraph(ModifyGraphState *mgstate, GSPKind kind, TupleTableSlot *slot)
 
 		attrno = findAttrInSlotByName(result, gsp->variable);
 
-		// TODO : Return Seted List
-
 		setSlotValueByAttnum(result, newelem, attrno);
 	}
 

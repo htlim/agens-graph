@@ -2924,10 +2924,10 @@ transformCypherStmt(ParseState *pstate, CypherStmt *stmt)
 							 errmsg("Cypher read clauses cannot follow update clauses")));
 				break;
 			case T_CypherDeleteClause:
-				if (endret)
-					ereport(ERROR,
-							(errcode(ERRCODE_SYNTAX_ERROR),
-							 errmsg("Cypher DELETE clause cannot end with RETURN clause")));
+//				if (endret)
+//					ereport(ERROR,
+//							(errcode(ERRCODE_SYNTAX_ERROR),
+//							 errmsg("Cypher DELETE clause cannot end with RETURN clause")));
 				/* pass through */
 			case T_CypherSetClause:
 				if (read)

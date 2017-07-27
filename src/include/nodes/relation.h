@@ -1483,7 +1483,7 @@ typedef struct EagerPath
 {
 	Path		path;
 	Path	   *subpath;
-	List	   *modifiedTarget;
+	List	   *modifiedlist;
 } EagerPath;
 
 /*

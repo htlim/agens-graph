@@ -13,6 +13,7 @@
 #include "executor/execdebug.h"
 #include "executor/nodeEager.h"
 #include "miscadmin.h"
+#include "utils/datum.h"
 #include "utils/tuplestore.h"
 
 /* hash entry */
@@ -21,6 +22,16 @@ typedef struct ModifiedObjEntry
 	Graphid	key;
 	Datum	properties;
 } ModifiedObjEntry;
+
+
+static void
+setSlotValueByAttnum(TupleTableSlot *slot, Datum value, int attnum)
+{
+	AssertArg(attnum > 0 && attnum <= slot->tts_tupleDescriptor->natts);
+
+	slot->tts_values[attnum - 1] = value;
+	slot->tts_isnull[attnum - 1] = (value == (Datum) NULL) ? true : false;
+}
 
 /* ----------------------------------------------------------------
  *		ExecEager
@@ -42,7 +53,6 @@ ExecEager(EagerState *node)
 	EState	   *estate;
 	ScanDirection dir;
 	Tuplestorestate *tuplestorestate;
-	TupleTableSlot *slot;
 	TupleTableSlot *result;
 
 	estate = node->ss.ps.state;
@@ -76,13 +86,57 @@ ExecEager(EagerState *node)
 		 */
 		for (;;)
 		{
+			ListCell *lc;
+
 			slot = ExecProcNode(outerNode);
 
 			if (TupIsNull(slot))
 				break;
 
-			// Get SET/DELETEd
-			// TODO : add modified property to properties table
+			foreach(lc, node->modifiedList)
+			{
+				int		idx = lfirst_int(lc);
+				Oid		type;
+				Datum	gid;
+				ModifiedObjEntry *entry;
+
+				if (slot->tts_isnull[idx] != 0)
+					continue;
+
+				type = slot->tts_tupleDescriptor->attrs[idx]->atttypid;
+				if (type == VERTEXOID)
+					gid = getVertexIdDatum(slot->tts_values[idx]);
+				else if (type == EDGEOID)
+					gid = getEdgeIdDatum(slot->tts_values[idx]);
+				else if (type == GRAPHPATHOID)
+				{
+					; //TODO : graph path, check all graph element in a graph path.
+				}
+				else
+					continue;
+
+				entry = hash_search(node->modifiedObject, (void *) &gid, HASH_ENTER, NULL);
+
+				if (node->gwop == GWROP_DELETE)
+				{
+					entry->properties = (Datum) NULL;
+				}
+				else if (node->gwop == GWROP_SET)
+				{
+					if (type == VERTEXOID)
+						entry->properties = datumCopy(getVertexPropDatum(slot->tts_values[idx]), false, -1);
+					else if (type == EDGEOID)
+						entry->properties = datumCopy(getEdgePropDatum(slot->tts_values[idx]), false, -1);
+					else if (type == GRAPHPATHOID)
+					{
+						; //TODO : graph path, check all graph element in a graph path.
+					}
+					else
+						Assert(0);
+				}
+				else
+					Assert(0); // only SET/DELETE is came here
+			}
 
 			tuplestore_puttupleslot(tuplestorestate, slot);
 		}
@@ -99,26 +153,24 @@ ExecEager(EagerState *node)
 	 * Get the first or next tuple from tuplestore. Returns NULL if no more
 	 * tuples.
 	 */
-	slot = node->ss.ss_ScanTupleSlot;
-	(void) tuplestore_gettupleslot(tuplestorestate,
-								   ScanDirectionIsForward(dir), false, slot);
+//	slot = node->ss.ss_ScanTupleSlot;
+
 
 	result = node->ss.ps.ps_ResultTupleSlot;
-	ExecClearTuple(result);
+//	ExecClearTuple(result);
+
+	(void) tuplestore_gettupleslot(tuplestorestate,
+								   ScanDirectionIsForward(dir), false, result);
 
 	/* mark slot as containing a virtual tuple */
-	if (!TupIsNull(slot))
+	if (!TupIsNull(result))
 	{
 		int i;
-		int	natts = slot->tts_tupleDescriptor->natts;
+		int	natts = result->tts_tupleDescriptor->natts;
 		ModifiedObjEntry *entry;
 
-		slot_getallattrs(slot);
-
-		memcpy(result->tts_values, slot->tts_values, natts * sizeof(Datum));
-		memcpy(result->tts_isnull, slot->tts_isnull, natts * sizeof(bool));
-
-		ExecStoreVirtualTuple(result);
+		slot_getallattrs(result);
+//		ExecStoreVirtualTuple(result);		// TODO : CHECK
 
 		// TODO : Check graph elements modified.
 		for (i=0; i<natts; i++)
@@ -126,16 +178,20 @@ ExecEager(EagerState *node)
 			Graphid gid;
 			Oid		type;
 
-			if (result->tts_isnull[i] == 0)
+			if (result->tts_isnull[i] != 0)
 				continue;
 
 			// TODO : get graph id
-			type = slot->tts_tupleDescriptor->attrs[i]->atttypid;
+			type = result->tts_tupleDescriptor->attrs[i]->atttypid;
 
 			if (type == VERTEXOID)
-				gid = getVertexIdDatum(slot->tts_values[i]);
+				gid = getVertexIdDatum(result->tts_values[i]);
 			else if (type == EDGEOID)
-				gid = getEdgeIdDatum(slot->tts_values[i]);
+				gid = getEdgeIdDatum(result->tts_values[i]);
+			else if (type == GRAPHPATHOID)
+			{
+				continue; //TODO : graph path, check all graph element in a graph path.
+			}
 			else
 				continue;
 
@@ -144,16 +200,40 @@ ExecEager(EagerState *node)
 				continue;
 			else
 			{
-//				Datum properties;
+				Datum graphelem;
+//				MemoryContext oldmctx;
 //
-//				if (type == VERTEXOID)
-//					properties = getVertexPropDatum(slot->tts_values[i]);
-//				else if (type == EDGEOID)
-//					properties = getEdgePropDatum(slot->tts_values[i]);
-//				else
-//					ASSERT(0);
+//				oldmctx = MemoryContextSwitchTo(node->ss.ps.ps_ExprContext->ecxt_per_tuple_memory);
 
-				// TODO : set modified properties
+				if (entry->properties == (Datum) NULL)
+				{
+					setSlotValueByAttnum(result, (Datum) NULL, i + 1);
+				}
+				else
+				{
+					if (type == VERTEXOID)
+					{
+						graphelem = makeGraphVertexDatum(gid, entry->properties);
+
+						setSlotValueByAttnum(result, graphelem, i + 1);
+					}
+					else if (type == EDGEOID)
+					{
+						Datum start, end;
+
+						start = getEdgeStartDatum(result->tts_values[i]);
+						end = getEdgeEndDatum(result->tts_values[i]);
+
+						graphelem = makeGraphEdgeDatum(gid, start, end, entry->properties);
+
+						setSlotValueByAttnum(result, graphelem, i + 1);
+					}
+					else if (type == GRAPHPATHOID)
+						continue;
+					else
+						Assert(0);
+				}
+//				MemoryContextSwitchTo(oldmctx);
 			}
 		}
 
@@ -182,6 +262,8 @@ ExecInitEager(Eager *node, EState *estate, int eflags)
 	Eagerstate->ss.ps.plan = (Plan *) node;
 	Eagerstate->ss.ps.state = estate;
 	Eagerstate->child_done = false;
+	Eagerstate->modifiedList = node->modifylist;
+	Eagerstate->gwop = node->gwop;
 
 	/*
 	 * tuple table initialization
@@ -229,13 +311,6 @@ ExecInitEager(Eager *node, EState *estate, int eflags)
 void
 ExecEndEager(EagerState *node)
 {
-	HASH_SEQ_STATUS seqStatus;
-	ModifiedObjEntry *entry;
-
-	hash_seq_init(&seqStatus, node->modifiedObject);
-	while ((entry = hash_seq_search(&seqStatus)) != NULL)
-		SPI_freeplan(entry->properties);
-
 	hash_destroy(node->modifiedObject);
 
 	node->modifiedObject = NULL;
