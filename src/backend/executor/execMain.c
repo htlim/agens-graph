@@ -329,10 +329,11 @@ standard_ExecutorRun(QueryDesc *queryDesc,
 	 */
 	estate->es_processed = 0;
 	estate->es_lastoid = InvalidOid;
-	estate->es_graphwrstats.insertVertex = 0;
-	estate->es_graphwrstats.insertEdge = 0;
-	estate->es_graphwrstats.deleteVertex = 0;
-	estate->es_graphwrstats.deleteEdge = 0;
+	estate->es_graphwrstats.insertVertex = -1;
+	estate->es_graphwrstats.insertEdge = -1;
+	estate->es_graphwrstats.deleteVertex = -1;
+	estate->es_graphwrstats.deleteEdge = -1;
+	estate->es_graphwrstats.updateProperty = -1;
 
 	sendTuples = (operation == CMD_SELECT ||
 				  queryDesc->plannedstmt->hasReturning);

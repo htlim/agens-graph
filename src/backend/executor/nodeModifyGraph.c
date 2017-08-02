@@ -136,6 +136,7 @@ static Datum createMergeEdge(ModifyGraphState *mgstate, GraphEdge *gedge,
 							 Graphid start, Graphid end, TupleTableSlot *slot);
 static TupleTableSlot *copyVirtualTupleTableSlot(TupleTableSlot *dstslot,
 												 TupleTableSlot *srcslot);
+static void initGraphWRStats(ModifyGraphState *mgstate, GraphWriteOp op);
 
 /* caching SPIPlan's (See ri_triggers.c) */
 static void InitSqlcmdHashTable(MemoryContext mcxt);
@@ -223,6 +224,8 @@ ExecInitModifyGraph(ModifyGraph *mgplan, EState *estate, int eflags)
 	mgstate->exprs = (List *) ExecInitExpr((Expr *) mgplan->exprs,
 										   (PlanState *) mgstate);
 	mgstate->sets = ExecInitGraphSets(mgplan->sets, mgstate);
+
+	initGraphWRStats(mgstate, mgplan->operation);
 
 	InitSqlcmdHashTable(estate->es_query_cxt);
 
@@ -314,6 +317,37 @@ ExecEndModifyGraph(ModifyGraphState *mgstate)
 
 	ExecEndNode(mgstate->subplan);
 	ExecFreeExprContext(&mgstate->ps);
+}
+
+static void
+initGraphWRStats(ModifyGraphState *mgstate, GraphWriteOp op)
+{
+	EState *estate = mgstate->ps.state;
+
+	if (mgstate->pattern != NIL)
+	{
+		Assert(op == GWROP_CREATE || op == GWROP_MERGE);
+
+		estate->es_graphwrstats.insertVertex = 0;
+		estate->es_graphwrstats.insertEdge = 0;
+	}
+	else if (mgstate->exprs != NIL)
+	{
+		Assert(op == GWROP_DELETE);
+
+		estate->es_graphwrstats.deleteVertex = 0;
+		estate->es_graphwrstats.deleteEdge = 0;
+	}
+	else if (mgstate->sets != NIL)
+	{
+		Assert(op == GWROP_SET || op == GWROP_MERGE);
+
+		estate->es_graphwrstats.updateProperty = 0;
+	}
+	else
+	{
+		elog(ERROR, "unknown operation");
+	}
 }
 
 static List *

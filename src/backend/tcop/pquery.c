@@ -1754,11 +1754,11 @@ appendGraphWriteTag(char *tagbuf, GraphWriteStats *graphwrstats)
 	int			pos = strlen(tagbuf);
 	int			opn;
 
-	if (graphwrstats->insertVertex == 0 &&
-		graphwrstats->insertEdge == 0 &&
-		graphwrstats->deleteVertex == 0 &&
-		graphwrstats->deleteEdge == 0 &&
-		graphwrstats->updateProperty == 0)
+	if (graphwrstats->insertVertex == -1 &&
+		graphwrstats->insertEdge == -1 &&
+		graphwrstats->deleteVertex == -1 &&
+		graphwrstats->deleteEdge == -1 &&
+		graphwrstats->updateProperty == -1)
 		return;
 
 	if (pos < COMPLETION_TAG_BUFSIZE)
