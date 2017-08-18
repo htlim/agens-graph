@@ -3167,11 +3167,7 @@ create_modifygraph_path(PlannerInfo *root, RelOptInfo *rel, bool canSetTag,
 	pathnode->exprs = exprs;
 	pathnode->sets = sets;
 
-	// if last ? pipeline
-	// if sets, exprs is null? pipeline
-	// if next_clause(parent plan) is modify graph ? eager
-	if (last != true/* &&
-		(sets != NULL || exprs != NULL )*/)
+	if (!last)
 		pathnode->eager = true;
 	else
 		pathnode->eager = false;

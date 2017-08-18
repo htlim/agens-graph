@@ -12,3 +12,6 @@ before_script:
  - ag_ctl start -w
 
 script: make installcheck
+
+after_script:
+ - diff ./src/test/regress/expected/cypher_dml.out ./src/test/regress/results/cypher_dml.out

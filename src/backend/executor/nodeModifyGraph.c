@@ -167,6 +167,7 @@ static Datum getEdgeFinalPropMap(ModifyGraphState *node,
 								 Datum origin, Graphid gid);
 static void getGidListInPath(Datum graphpath, List **vtxlist, List **edgelist);
 static Datum getPathFinalPropMap(ModifyGraphState *node, Datum origin);
+static void reflectModifiedProp(ModifyGraphState *mgstate);
 
 ModifyGraphState *
 ExecInitModifyGraph(ModifyGraph *mgplan, EState *estate, int eflags)
@@ -257,7 +258,9 @@ ExecInitModifyGraph(ModifyGraph *mgplan, EState *estate, int eflags)
 
 	mgstate->tuplestorestate = tuplestore_begin_heap(false, false, work_mem);
 
-	if (mgstate->eagerness)
+	if (mgstate->eagerness &&
+		(mgstate->sets != NIL||
+		 mgstate->exprs != NIL))
 	{
 		HASHCTL ctl;
 
@@ -273,41 +276,6 @@ ExecInitModifyGraph(ModifyGraph *mgplan, EState *estate, int eflags)
 		mgstate->propTable = NULL;
 
 	return mgstate;
-}
-
-static void
-reflectModifiedProp(ModifyGraphState *mgstate)
-{
-	HASH_SEQ_STATUS seq;
-	ModifiedPropEntry *entry;
-
-	Assert(mgstate->propTable != NULL);
-
-	if (SPI_connect() != SPI_OK_CONNECT)
-		elog(ERROR, "SPI_connect failed");
-
-	DisableGraphDML = false;
-
-	hash_seq_init(&seq, mgstate->propTable);
-	while ((entry = hash_seq_search(&seq)) != NULL)
-	{
-		Datum gid = GraphidGetDatum(entry->key);
-
-		/* Write the objects to heap */
-		if (entry->properties == (Datum) NULL)
-		{
-			deleteElem(mgstate, gid, entry->kind);
-		}
-		else
-		{
-			updateElemProp(mgstate, gid, entry->properties);
-		}
-	}
-
-	DisableGraphDML = true;
-
-	if (SPI_finish() != SPI_OK_FINISH)
-		elog(ERROR, "SPI_finish failed");
 }
 
 TupleTableSlot *
@@ -331,16 +299,12 @@ ExecModifyGraph(ModifyGraphState *mgstate)
 			DisableGraphDML = false;
 			switch (plan->operation)
 			{
-				// TODO: Evaluation && Save graphid and ModifiedValue to Prop_Table
-				/* CREATE and MERGE will store to heap, directly */
 				case GWROP_CREATE:
 					slot = ExecCreateGraph(mgstate, slot);
 					break;
 				case GWROP_MERGE:
 					slot = ExecMergeGraph(mgstate, slot);
 					break;
-
-				/* SET/REMOVE/DELETE will store to disk, lately */
 				case GWROP_DELETE:
 					slot = ExecDeleteGraph(mgstate, slot);
 					break;
@@ -369,6 +333,8 @@ ExecModifyGraph(ModifyGraphState *mgstate)
 			}
 			else if (slot != NULL)
 				return slot;
+			else
+				Assert(plan->last == true);
 		}
 
 		mgstate->child_done = true;
@@ -394,7 +360,8 @@ ExecModifyGraph(ModifyGraphState *mgstate)
 
 			slot_getallattrs(result);
 
-			if (hash_get_num_entries(mgstate->propTable) > 0)
+			if (mgstate->propTable &&
+				hash_get_num_entries(mgstate->propTable) > 0)
 			{
 				for (i = 0; i < natts; i++)
 				{
@@ -773,7 +740,7 @@ createEdge(ModifyGraphState *mgstate, GraphEdge *gedge, Graphid start,
 	TupleTableSlot *elemTupleSlot = mgstate->elemTupleSlot;
 	ResultRelInfo *resultRelInfo;
 	ResultRelInfo *savedResultRelInfo;
-	Graphid		id;
+	Graphid		id = 0; /* avoid warning */
 	Datum		edge;
 	Datum		edgeProp;
 	HeapTuple	tuple;
@@ -1420,17 +1387,23 @@ ExecMergeGraph(ModifyGraphState *mgstate, TupleTableSlot *slot)
 
 	if (isMatchedMergePattern(mgstate->subplan))
 	{
-		slot = ExecSetGraph(mgstate, GSP_ON_MATCH, slot);
+		if (mgstate->sets != NIL)
+			slot = ExecSetGraph(mgstate, GSP_ON_MATCH, slot);
 	}
 	else
 	{
 		slot = createMergePath(mgstate, path, slot);
 
-		/* Increase CommandId to scan tuples created by createMergePath(). */
-		while (mgstate->ps.state->es_output_cid >= GetCurrentCommandId(true))
-			CommandCounterIncrement();
+		if (mgstate->sets != NIL)
+		{
+			/*
+			 * Increase CommandId to scan tuples created by createMergePath().
+			 */
+			while (mgstate->ps.state->es_output_cid >= GetCurrentCommandId(true))
+				CommandCounterIncrement();
 
-		slot = ExecSetGraph(mgstate, GSP_ON_CREATE, slot);
+			slot = ExecSetGraph(mgstate, GSP_ON_CREATE, slot);
+		}
 	}
 
 	return (plan->last ? NULL : slot);
@@ -1441,6 +1414,7 @@ static bool
 isMatchedMergePattern(PlanState *planstate)
 {
 	NestLoopState *nlstate = (NestLoopState *) planstate;
+	Assert(IsA(planstate, NestLoopState));
 
 	return nlstate->nl_MatchedOuter;
 }
@@ -1863,8 +1837,8 @@ enterDelPropTable(ModifyGraphState *node, Datum elem, Oid type)
 	}
 	else
 	{
-		List	 *vtxGidList;
-		List	 *edgeGidList;
+		List	 *vtxGidList = NIL;
+		List	 *edgeGidList = NIL;
 		ListCell *lc;
 
 		Assert(type == GRAPHPATHOID);
@@ -2093,4 +2067,39 @@ getPathFinalPropMap(ModifyGraphState *node, Datum origin)
 	pfree(edges);
 
 	return result;
+}
+
+static void
+reflectModifiedProp(ModifyGraphState *mgstate)
+{
+	HASH_SEQ_STATUS seq;
+	ModifiedPropEntry *entry;
+
+	Assert(mgstate->propTable != NULL);
+
+	if (SPI_connect() != SPI_OK_CONNECT)
+		elog(ERROR, "SPI_connect failed");
+
+	DisableGraphDML = false;
+
+	hash_seq_init(&seq, mgstate->propTable);
+	while ((entry = hash_seq_search(&seq)) != NULL)
+	{
+		Datum gid = GraphidGetDatum(entry->key);
+
+		/* Write the objects to heap */
+		if (entry->properties == (Datum) NULL)
+		{
+			deleteElem(mgstate, gid, entry->kind);
+		}
+		else
+		{
+			updateElemProp(mgstate, gid, entry->properties);
+		}
+	}
+
+	DisableGraphDML = true;
+
+	if (SPI_finish() != SPI_OK_FINISH)
+		elog(ERROR, "SPI_finish failed");
 }
