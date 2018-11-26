@@ -2360,6 +2360,20 @@ MATCH (a)-[]->(b) RETURN properties(a) AS a, properties(b) AS b;
 (1 row)
 
 MATCH (a) DETACH DELETE (a);
+-- AG-206
+CREATE ({val: 1});
+MATCH (a)
+SET a.val1 = 1, a.val2 = 2, a.val3 = 3, a.val4 = 4, a.val5 = 5;
+MATCH (a) RETURN properties(a);
+                            properties                             
+-------------------------------------------------------------------
+ {"val": 1, "val1": 1, "val2": 2, "val3": 3, "val4": 4, "val5": 5}
+(1 row)
+
+MATCH (a)
+SET a.val1 = 1, a.val2 = 2, a.val3 = 3, a.val4 = 4, a.val5 = 5, a.val6 = 6;
+ERROR:  cannot pass more than 5 arguments to a SET clause
+MATCH (a) DETACH DELETE (a);
 -- += operator
 CREATE ({age: 10});
 MATCH (a) SET a += {name: 'bitnine', age: 3}

@@ -762,6 +762,11 @@ transformCypherSetClause(ParseState *pstate, CypherClause *clause)
 	AssertArg(clause->prev != NULL);
 	Assert(detail->kind == CSET_NORMAL);
 
+	if (list_length(detail->items) > 5)
+		ereport(ERROR,
+				(errcode(ERRCODE_TOO_MANY_ARGUMENTS),
+				 errmsg("cannot pass more than 5 arguments to a SET clause")));
+
 	qry = makeNode(Query);
 	qry->commandType = CMD_GRAPHWRITE;
 	qry->graph.writeOp = GWROP_SET;

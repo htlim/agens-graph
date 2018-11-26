@@ -862,6 +862,16 @@ SET a.val = b.val SET b.val = a.val;
 MATCH (a)-[]->(b) RETURN properties(a) AS a, properties(b) AS b;
 MATCH (a) DETACH DELETE (a);
 
+-- AG-206
+CREATE ({val: 1});
+MATCH (a)
+SET a.val1 = 1, a.val2 = 2, a.val3 = 3, a.val4 = 4, a.val5 = 5;
+MATCH (a) RETURN properties(a);
+
+MATCH (a)
+SET a.val1 = 1, a.val2 = 2, a.val3 = 3, a.val4 = 4, a.val5 = 5, a.val6 = 6;
+MATCH (a) DETACH DELETE (a);
+
 -- += operator
 
 CREATE ({age: 10});
